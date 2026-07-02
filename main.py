@@ -25,8 +25,6 @@ branch_email = sys.argv[2]   # INPUT
 
 mainpath = "C:/testTKC/OpenAI_Invoice_Processing_AP"
 
-print(today_str)
-
 input_folder = rf"{mainpath}\INPUT\{branch_email}"
 temp_folder = rf"{mainpath}\TempSplit"
 output_excel = rf"{mainpath}\INPUT\{branch_email}\OutputExcel\{today_str}\Excel\OCR\All_Invoices.xlsx"
@@ -355,8 +353,6 @@ def extract_supplier_name_from_pages(invoices):
     # NIFCO
     if "NIFCO" in full_text or "นิฟโก้" in full_text:
 
-        print ("NIFCO")
-
         thai_name = ""
         eng_name = ""
 
@@ -426,8 +422,6 @@ def extract_supplier_name_from_pages(invoices):
 #         search_limit = 200
 #         isNifco = True
     
-#     print ("isNifco",isNifco)
-
 #     for line in lines[:search_limit]:
 #         upper = line.upper()
 
@@ -541,32 +535,60 @@ def extract_tax_id_from_pages(invoices):
 
     return ""
 
+# def extract_vat_from_pages(invoices):
+#     for page in invoices.pages:
+#         for line in page.lines:
+#             text = line.content.strip() if line.content else ""
+#             clean_text = text.replace(",", "")
 
-# ====================================================
-# 📌 Amount / VAT / PO / Invoice No
-# ====================================================
+#             if not re.search(r"VAT\s*7\s*%", clean_text, re.IGNORECASE):
+#                 continue
+
+#             after_vat = re.split(
+#                 r"VAT\s*7\s*%",
+#                 clean_text,
+#                 flags=re.IGNORECASE
+#             )[-1]
+#             nums = re.findall(r"\d+\.\d{2}", after_vat)
+
+#             if nums:
+#                 return float(nums[0])
+
+#     return 0.0
+
 def extract_vat_from_pages(invoices):
-    for page in invoices.pages:
-        for line in page.lines:
-            text = line.content.strip() if line.content else ""
-            clean_text = text.replace(",", "")
 
-            if not re.search(r"VAT\s*7\s*%", clean_text, re.IGNORECASE):
-                continue
+    full_text = "\n".join(
+        line.content.strip()
+        for page in invoices.pages
+        for line in page.lines
+        if line.content
+    )
 
-            after_vat = re.split(
-                r"VAT\s*7\s*%",
-                clean_text,
-                flags=re.IGNORECASE
-            )[-1]
+    full_text = full_text.replace(",", "")
 
-            nums = re.findall(r"\d+\.\d{2}", after_vat)
+    patterns = [
+        r"SUB\s*TOTAL[\s\S]{0,150}?TOTAL\s*TAX[\s\S]{0,50}?VAT\s*7\s*%[\s\S]{0,50}?(\d+\.\d{2})",
+        r"TOTAL\s+BEFORE\s+VAT[\s\S]{0,150}?VAT\s*7\s*%[\s\S]{0,50}?(\d+\.\d{2})",
+        r"NET\s+AMOUNT[\s\S]{0,150}?VAT\s*7\s*%[\s\S]{0,50}?(\d+\.\d{2})",
+        r"AMOUNT\s+BEFORE\s+VAT[\s\S]{0,150}?VAT\s*7\s*%[\s\S]{0,50}?(\d+\.\d{2})",
+    ]
 
-            if nums:
-                return float(nums[0])
+    for pattern in patterns:
+        m = re.search(pattern, full_text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+
+    matches = re.findall(
+        r"VAT\s*7\s*%[\s\S]{0,30}?(\d+\.\d{2})",
+        full_text,
+        re.IGNORECASE,
+    )
+
+    if matches:
+        return float(matches[-1])
 
     return 0.0
-
 
 def extract_po_from_text_and_tables(invoices):
     po_no_list = []
@@ -592,7 +614,6 @@ def extract_po_from_text_and_tables(invoices):
 
     return ",".join(dict.fromkeys(cleaned))
 
-
 def clean_po_from_field(purchase_order_no):
     po_no = str(purchase_order_no or "").replace("\n", ",")
     if not po_no:
@@ -609,7 +630,6 @@ def clean_po_from_field(purchase_order_no):
             cleaned.append(po)
 
     return ",".join(dict.fromkeys(cleaned))
-
 
 def extract_tax_invoice_no_from_layout(layout_result):
     lines = []
@@ -637,11 +657,13 @@ def extract_tax_invoice_no_from_layout(layout_result):
 
     value = find_first_by_patterns(fallback_patterns, full_text)
 
+    if "NIFCO" in full_text or "นิฟโก้" in full_text:
+        value = "OTH".join(value)
+
     if value and not re.match(r"^(?:PO)?(?:410|140)\d{7}$", value, re.IGNORECASE):
         return value
 
     return ""
-
 
 def find_invoice_no_from_words(invoices):
     for page in invoices.pages:
@@ -660,7 +682,6 @@ def find_invoice_no_from_words(invoices):
                 return value
 
     return ""
-
 
 def normalize_amounts(row):
     try:
@@ -691,14 +712,10 @@ def normalize_amounts(row):
 
     return row
 
-
-# ====================================================
 # 📌 Main Convert
-# ====================================================
 def extract_invoice_to_json(invoice, invoices):
-    supplier_name = get_field_value(invoice.fields.get("VendorAddressRecipient"))
 
-    print ("supplier_name",supplier_name)
+    supplier_name = get_field_value(invoice.fields.get("VendorAddressRecipient"))
 
     supplier = (supplier_name or "").strip()
 
@@ -798,7 +815,41 @@ def extract_invoice_to_json(invoice, invoices):
     }
 
 
+# def merge_invoice_row(existing, new):
+#     for field in [
+#         "InvoiceDate",
+#         "PostingDate",
+#         "TaxInvoiceNo",
+#         "SupplierName",
+#         "Assignment",
+#         "VendorTaxId",
+#         "VendorBranch",
+#     ]:
+#         if (not existing.get(field)) and new.get(field):
+#             existing[field] = new.get(field)
+
+#     vals = []
+#     for v in [existing.get("PurchaseOrderNo", ""), new.get("PurchaseOrderNo", "")]:
+#         if v:
+#             vals.extend([x.strip() for x in str(v).split(",") if x.strip()])
+
+#     if vals:
+#         existing["PurchaseOrderNo"] = ",".join(dict.fromkeys(vals))
+
+#     for field in ["TotalAmount", "VATAmount", "AmountIncVat"]:
+#         try:
+#             if normalize_number(existing.get(field, 0)) == 0 and normalize_number(new.get(field, 0)) > 0:
+#                 existing[field] = new.get(field)
+#         except Exception:
+#             pass
+
+#     if new.get("Emessage"):
+#         existing["Emessage"] = append_msg(existing.get("Emessage", ""), new["Emessage"])
+
+#     return existing
+
 def merge_invoice_row(existing, new):
+
     for field in [
         "InvoiceDate",
         "PostingDate",
@@ -812,25 +863,45 @@ def merge_invoice_row(existing, new):
             existing[field] = new.get(field)
 
     vals = []
-    for v in [existing.get("PurchaseOrderNo", ""), new.get("PurchaseOrderNo", "")]:
+    for v in [
+        existing.get("PurchaseOrderNo", ""),
+        new.get("PurchaseOrderNo", "")
+    ]:
         if v:
-            vals.extend([x.strip() for x in str(v).split(",") if x.strip()])
+            vals.extend(
+                [x.strip() for x in str(v).split(",") if x.strip()]
+            )
 
     if vals:
         existing["PurchaseOrderNo"] = ",".join(dict.fromkeys(vals))
 
-    for field in ["TotalAmount", "VATAmount", "AmountIncVat"]:
+    # TotalAmount และ AmountIncVat
+    for field in ["TotalAmount", "AmountIncVat"]:
         try:
-            if normalize_number(existing.get(field, 0)) == 0 and normalize_number(new.get(field, 0)) > 0:
+            if (
+                normalize_number(existing.get(field, 0)) == 0
+                and normalize_number(new.get(field, 0)) > 0
+            ):
                 existing[field] = new.get(field)
         except Exception:
             pass
 
+    try:
+        existing_vat = normalize_number(existing.get("VATAmount", 0))
+        new_vat = normalize_number(new.get("VATAmount", 0))
+
+        if new_vat > existing_vat:
+            existing["VATAmount"] = new.get("VATAmount")
+    except Exception:
+        pass
+
     if new.get("Emessage"):
-        existing["Emessage"] = append_msg(existing.get("Emessage", ""), new["Emessage"])
+        existing["Emessage"] = append_msg(
+            existing.get("Emessage", ""),
+            new["Emessage"]
+        )
 
     return existing
-
 
 def add_or_merge_row(all_data, invoice_data):
     current_tax = (invoice_data.get("TaxInvoiceNo") or "").strip()
@@ -850,10 +921,7 @@ def add_or_merge_row(all_data, invoice_data):
 
     all_data.append(invoice_data)
 
-
-# ====================================================
 # 📌 Process PDF
-# ====================================================
 pdf_list = [
     os.path.join(input_folder, f)
     for f in os.listdir(input_folder)
@@ -920,11 +988,11 @@ for input_pdf in pdf_list:
         invoice_date_ocr = extract_oldest_date_from_text(invoices)
 
         for idx, invoice in enumerate(invoices.documents):
-            print(f"\n-------- Invoice #{idx + 1} --------")
 
             invoice_data = extract_invoice_to_json(invoice, invoices)
 
             if normalize_number(invoice_data.get("VATAmount", 0)) == 0:
+                
                 vat_fallback = extract_vat_from_pages(invoices)
                 if vat_fallback:
                     invoice_data["VATAmount"] = vat_fallback
@@ -966,6 +1034,13 @@ for input_pdf in pdf_list:
 
             normalize_amounts(invoice_data)
             add_or_merge_row(all_data, invoice_data)
+        
+        lines = get_all_lines(invoices)
+        full_text = "\n".join(lines).upper()
+
+        #Custom Nifco
+        if "NIFCO" in full_text or "นิฟโก้" in full_text:
+            invoice_data["TaxInvoiceNo"] = "OTH" + str(invoice_data.get("TaxInvoiceNo", ""))
 
     pdf_name = os.path.basename(input_pdf)
     dest_path = os.path.join(dest_folder, pdf_name)
@@ -979,10 +1054,7 @@ for input_pdf in pdf_list:
         except Exception as e:
             print(f"⚠️ Move failed: {e}")
 
-
-# ====================================================
 # 💾 Save Excel
-# ====================================================
 columns = [
     "InvoiceDate",
     "PostingDate",
@@ -997,7 +1069,6 @@ columns = [
     "PurchaseOrderNo",
     "Emessage",
 ]
-
 required_fields = [
     "InvoiceDate",
     "PostingDate",
@@ -1025,7 +1096,7 @@ for row in all_data:
         expected_vat = round(total_amount * 0.07, 2)
 
         if abs(vat_amount - expected_vat) > 0.01:
-            errors.append(f"cfv ไม่ถูกต้อง (Expected {expected_vat:.2f})")
+            errors.append(f"VATAmount ไม่ถูกต้อง (Expected {expected_vat:.2f})")
 
     except Exception:
         errors.append("VATAmount format invalid")
