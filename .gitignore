@@ -1,44 +1,44 @@
-# # Python
-# __pycache__/
-# *.py[cod]
+# Python
+__pycache__/
+*.py[cod]
 
-# # Virtual Environment
-# .venv/
-# venv/
+# Virtual Environment
+.venv/
+venv/
 
-# # Build
-# build/
-# dist/
+# Build
+build/
+dist/
 
-# # Output
-# Output/
-# Exceldata/
+# Output
+Output/
+Exceldata/
 
-# # Input Test Files
-# INPUT/
-# InputPDF/
-# pdf_test/
+# Input Test Files
+INPUT/
+InputPDF/
+pdf_test/
 
-# # Temporary
-# TempSplit/
-# Temp PNG/
-# Temp PNG COMPLETE/
-# SplitComplete/
+# Temporary
+TempSplit/
+Temp PNG/
+Temp PNG COMPLETE/
+SplitComplete/
 
-# # Backup
-# Backup/
+# Backup
+Backup/
 
-# # Node
-# # node_modules/
+# Node
+node_modules/
 
-# # PDF
-# *.pdf
+# PDF
+*.pdf
 
-# # JSON Output
-# output.json
+# JSON Output
+output.json
 
-# # Logs
-# *.log
+# Logs
+*.log
 
-# # Poppler
-# poppler-24.08.0/
+# Poppler
+poppler-24.08.0/
