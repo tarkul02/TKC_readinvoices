@@ -23,7 +23,7 @@ key = "DJInxVJPCWIjReFOSKXpiDPx0Y4guPKPQ6rgi6myTkYppDOyY8c6JQQJ99CFACqBBLyXJ3w3A
 today_str = sys.argv[1]      # INPUT
 branch_email = sys.argv[2]   # INPUT
 
-mainpath = "C:/testTKC/OpenAI_Invoice_Processing_AP"
+mainpath = "C:/testTKC/TKC_readinvoices"
 
 input_folder = rf"{mainpath}\INPUT\{branch_email}"
 temp_folder = rf"{mainpath}\TempSplit"
@@ -103,22 +103,43 @@ def normalize_invoice_date(date_value):
     if not date_value:
         return ""
 
+    current_year = datetime.now().year
+
+    def fix_year(year):
+        # พ.ศ. 4 หลัก เช่น 2569 -> 2026
+        if year > 2400:
+            year -= 543
+
+        # Python/Azure ตีความปี 69 เป็น 1969
+        elif 1969 <= year <= 1999:
+            year += 57
+
+        # Python ตีความปี 68 เป็น 2068 ให้ย้อนเป็น 2025
+        if year > current_year + 1:
+            year -= 43
+
+        return year
+
+    # กรณี Azure ส่งมาเป็น datetime/date
     if isinstance(date_value, datetime):
-        year = date_value.year - 543 if date_value.year > 2400 else date_value.year
+        year = fix_year(date_value.year)
         return date_value.replace(year=year).strftime("%d/%m/%Y")
 
     text = str(date_value).strip()
     text = re.sub(r"\s+", " ", text)
     text = text.replace(".", "")
 
+    # กรณี dd/mm/yy หรือ dd-mm-yy เช่น 04/08/69
     m = re.match(r"^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$", text)
     if m:
         d, mth, yy = map(int, m.groups())
 
-        if yy >= 50:
-            year = 2500 + yy - 543
-        else:
-            year = 2000 + yy
+        # ถือว่า yy เป็น พ.ศ. 25xx เช่น 69 -> 2569 -> 2026
+        year = (2500 + yy) - 543
+
+        # กันปีอนาคตไกล เช่น 68 -> 2025
+        if year > current_year + 1:
+            year -= 43
 
         return f"{d:02d}/{mth:02d}/{year:04d}"
 
@@ -139,15 +160,10 @@ def normalize_invoice_date(date_value):
     for fmt in formats:
         try:
             dt = datetime.strptime(text, fmt)
-            year = dt.year
-
-            if year > 2400:
-                year -= 543
-
-            if "%y" in fmt and year >= 2050:
-                year -= 43
+            year = fix_year(dt.year)
 
             return dt.replace(year=year).strftime("%d/%m/%Y")
+
         except Exception:
             continue
 
