@@ -1,0 +1,68 @@
+{
+    "invoice_patterns": [
+        {
+            "name": "Invoice AlphaNumeric",
+            "regex": "[A-Z]{1,3}\\d{6,20}"
+        },
+        {
+            "name": "Invoice Slash",
+            "regex": "[A-Z]{2}\\d{4}/\\d{4}"
+        },
+        {
+            "name": "Invoice Dash",
+            "regex": "\\d{2}-\\d{6}"
+        },
+        {
+            "name": "IG Invoice",
+            "regex": "IG\\d{3,6}[/-]\\d{3,5}"
+        }
+    ],
+    "po_patterns": [
+        {
+            "name": "PO410",
+            "regex": "(?:PO)?(410\\d{7})"
+        },
+        {
+            "name": "PO140",
+            "regex": "(?:PO)?(140\\d{7})"
+        }
+    ],
+    "vendor_branch_patterns": [
+        {
+            "name": "Thai Branch",
+            "regex": "สาขา(?:ที่|เลขที่)?\\s*[:：]?\\s*(\\d{1,10})"
+        },
+        {
+            "name": "English Branch",
+            "regex": "Branch\\s*(?:No\\.?|Number|Code|ID)?\\s*[:：]?\\s*(\\d{1,10})"
+        }
+    ],
+    "taxid_patterns": [
+        {
+            "name": "Thai TaxID",
+            "regex": "เลขประจำตัวผู้เสียภาษี.*?([0-9OIl\\s\\-]{13,30})"
+        },
+        {
+            "name": "English TaxID",
+            "regex": "TAX\\s*ID.*?([0-9OIl\\s\\-]{13,30})"
+        },
+        {
+            "name": "TIN",
+            "regex": "TIN.*?([0-9OIl\\s\\-]{13,30})"
+        }
+    ],
+    "exclude_tax_ids": [
+        "0105529030059"
+    ],
+    "stop_keywords": [
+        "BILL TO",
+        "SHIP TO",
+        "Customer",
+        "Customer Name",
+        "Customer Code",
+        "ชื่อลูกค้า",
+        "รหัสลูกค้า",
+        "Delivery To",
+        "ส่งของที่"
+    ]
+}
