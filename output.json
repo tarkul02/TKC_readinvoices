@@ -1,0 +1,2502 @@
+[
+  {
+    "docType": "invoice",
+    "boundingRegions": [
+      {
+        "pageNumber": 1,
+        "polygon": [
+          0,
+          0,
+          8.2639,
+          0,
+          8.2639,
+          11.6944,
+          0,
+          11.6944
+        ]
+      }
+    ],
+    "fields": {
+      "CustomerAddress": {
+        "type": "address",
+        "content": "31/2 หมู่3\nบางเสาธง บางเสาธง สมุทรปราการ",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              1.4599,
+              1.853,
+              3.0901,
+              1.8548,
+              3.0897,
+              2.2349,
+              1.4594,
+              2.233
+            ]
+          }
+        ],
+        "confidence": 0.888,
+        "spans": [
+          {
+            "offset": 266,
+            "length": 8
+          },
+          {
+            "offset": 302,
+            "length": 28
+          }
+        ],
+        "valueAddress": {
+          "houseNumber": "31/2",
+          "road": "หมู่3",
+          "city": "บางเสาธง บางเสาธง สมุทรปราการ",
+          "streetAddress": "31/2 หมู่3"
+        }
+      },
+      "CustomerAddressRecipient": {
+        "type": "string",
+        "valueString": "บริษัท ทีโอเอ เพ้นท์ (ประเทศไทย)จำกัด มหาชน",
+        "content": "บริษัท ทีโอเอ เพ้นท์ (ประเทศไทย)จำกัด มหาชน",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              1.4587,
+              1.6307,
+              3.6437,
+              1.6317,
+              3.6436,
+              1.8109,
+              1.4586,
+              1.81
+            ]
+          }
+        ],
+        "confidence": 0.845,
+        "spans": [
+          {
+            "offset": 186,
+            "length": 36
+          }
+        ]
+      },
+      "CustomerName": {
+        "type": "string",
+        "valueString": "TOA PAINT (THAILAND) PCL.",
+        "content": "TOA PAINT (THAILAND) PCL.",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              5.4568,
+              2.0302,
+              6.9675,
+              2.026,
+              6.9679,
+              2.1754,
+              5.4572,
+              2.1796
+            ]
+          }
+        ],
+        "confidence": 0.416,
+        "spans": [
+          {
+            "offset": 342,
+            "length": 25
+          }
+        ]
+      },
+      "CustomerTaxId": {
+        "type": "string",
+        "valueString": "0783016930",
+        "content": "0783016930",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              5.4636,
+              2.2441,
+              6.0766,
+              2.2417,
+              6.0766,
+              2.3691,
+              5.4637,
+              2.3695
+            ]
+          }
+        ],
+        "confidence": 0.67,
+        "spans": [
+          {
+            "offset": 412,
+            "length": 10
+          }
+        ]
+      },
+      "InvoiceDate": {
+        "type": "date",
+        "valueDate": "2026-03-08",
+        "content": "08/03/2026",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              5.4632,
+              1.8313,
+              6.0309,
+              1.8282,
+              6.0309,
+              1.9583,
+              5.4633,
+              1.9586
+            ]
+          }
+        ],
+        "confidence": 0.848,
+        "spans": [
+          {
+            "offset": 291,
+            "length": 10
+          }
+        ]
+      },
+      "InvoiceId": {
+        "type": "string",
+        "valueString": "260803100093",
+        "content": "260803100093",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              5.4599,
+              1.6275,
+              6.1965,
+              1.622,
+              6.1965,
+              1.7518,
+              5.4602,
+              1.7559
+            ]
+          }
+        ],
+        "confidence": 0.925,
+        "spans": [
+          {
+            "offset": 230,
+            "length": 12
+          }
+        ]
+      },
+      "InvoiceTotal": {
+        "type": "currency",
+        "valueCurrency": {
+          "amount": 4498.75,
+          "currencyCode": "THB"
+        },
+        "content": "4,498.75",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              7.1414,
+              7.7785,
+              7.5614,
+              7.7775,
+              7.5614,
+              7.8955,
+              7.1412,
+              7.8967
+            ]
+          }
+        ],
+        "confidence": 0.839,
+        "spans": [
+          {
+            "offset": 1486,
+            "length": 8
+          }
+        ]
+      },
+      "Items": {
+        "type": "array",
+        "valueArray": [
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3456,
+                      4.2827,
+                      7.5614,
+                      4.2821,
+                      7.5614,
+                      4.3968,
+                      7.346,
+                      4.3968
+                    ]
+                  }
+                ],
+                "confidence": 0.762,
+                "spans": [
+                  {
+                    "offset": 1015,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.922,
+                      4.2836,
+                      6.1446,
+                      4.2834,
+                      6.1445,
+                      4.4008,
+                      5.922,
+                      4.4012
+                    ]
+                  }
+                ],
+                "confidence": 0.269,
+                "spans": [
+                  {
+                    "offset": 1010,
+                    "length": 4
+                  }
+                ]
+              },
+              "UnitPrice": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      3.0816,
+                      4.291,
+                      3.301,
+                      4.2908,
+                      3.301,
+                      4.4083,
+                      3.0816,
+                      4.4083
+                    ]
+                  }
+                ],
+                "confidence": 0.256,
+                "spans": [
+                  {
+                    "offset": 1000,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "VSA-DCC\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.0683,
+                  4.2901,
+                  7.5614,
+                  4.2814,
+                  7.5616,
+                  4.4055,
+                  1.0685,
+                  4.4142
+                ]
+              }
+            ],
+            "confidence": 0.615,
+            "spans": [
+              {
+                "offset": 992,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3458,
+                      4.4491,
+                      7.5614,
+                      4.4487,
+                      7.5613,
+                      4.5619,
+                      7.3457,
+                      4.5624
+                    ]
+                  }
+                ],
+                "confidence": 0.766,
+                "spans": [
+                  {
+                    "offset": 1043,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9233,
+                      4.4511,
+                      6.1394,
+                      4.4502,
+                      6.1394,
+                      4.5646,
+                      5.9234,
+                      4.5657
+                    ]
+                  }
+                ],
+                "confidence": 0.269,
+                "spans": [
+                  {
+                    "offset": 1038,
+                    "length": 4
+                  }
+                ]
+              },
+              "UnitPrice": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      3.0833,
+                      4.4581,
+                      3.301,
+                      4.4576,
+                      3.301,
+                      4.5721,
+                      3.0833,
+                      4.5718
+                    ]
+                  }
+                ],
+                "confidence": 0.244,
+                "spans": [
+                  {
+                    "offset": 1028,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "VSA-INT\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.0999,
+                  4.4565,
+                  7.5614,
+                  4.4431,
+                  7.5616,
+                  4.5636,
+                  1.1002,
+                  4.5771
+                ]
+              }
+            ],
+            "confidence": 0.57,
+            "spans": [
+              {
+                "offset": 1020,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 4498.75,
+                  "currencyCode": "THB"
+                },
+                "content": "4,498.75",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.1381,
+                      4.6133,
+                      7.5614,
+                      4.6126,
+                      7.5614,
+                      4.7302,
+                      7.138,
+                      4.7337
+                    ]
+                  }
+                ],
+                "confidence": 0.936,
+                "spans": [
+                  {
+                    "offset": 1073,
+                    "length": 8
+                  }
+                ]
+              },
+              "TaxRate": {
+                "type": "string",
+                "valueString": "8.09",
+                "content": "8.09",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9241,
+                      4.6177,
+                      6.1394,
+                      4.6189,
+                      6.1394,
+                      4.7314,
+                      5.924,
+                      4.7325
+                    ]
+                  }
+                ],
+                "confidence": 0.463,
+                "spans": [
+                  {
+                    "offset": 1068,
+                    "length": 4
+                  }
+                ]
+              },
+              "UnitPrice": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 4622.4,
+                  "currencyCode": "THB"
+                },
+                "content": "4,622.40",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      2.8792,
+                      4.6218,
+                      3.301,
+                      4.6211,
+                      3.301,
+                      4.7415,
+                      2.8792,
+                      4.7431
+                    ]
+                  }
+                ],
+                "confidence": 0.481,
+                "spans": [
+                  {
+                    "offset": 1052,
+                    "length": 8
+                  }
+                ]
+              }
+            },
+            "content": "VSA\n4,622.40\n115.56\n8.09\n4,498.75",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.2126,
+                  4.6182,
+                  7.5614,
+                  4.6126,
+                  7.5615,
+                  4.739,
+                  1.2127,
+                  4.7446
+                ]
+              }
+            ],
+            "confidence": 0.617,
+            "spans": [
+              {
+                "offset": 1048,
+                "length": 33
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3458,
+                      4.7829,
+                      7.5613,
+                      4.7817,
+                      7.5614,
+                      4.8956,
+                      7.3462,
+                      4.8955
+                    ]
+                  }
+                ],
+                "confidence": 0.771,
+                "spans": [
+                  {
+                    "offset": 1105,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9234,
+                      4.7861,
+                      6.1394,
+                      4.7852,
+                      6.1394,
+                      4.8993,
+                      5.9235,
+                      4.8993
+                    ]
+                  }
+                ],
+                "confidence": 0.241,
+                "spans": [
+                  {
+                    "offset": 1100,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "VSA-AFF\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.0871,
+                  4.7898,
+                  7.5613,
+                  4.7763,
+                  7.5615,
+                  4.8997,
+                  1.0874,
+                  4.9132
+                ]
+              }
+            ],
+            "confidence": 0.57,
+            "spans": [
+              {
+                "offset": 1082,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3464,
+                      4.9497,
+                      7.5607,
+                      4.9494,
+                      7.5605,
+                      5.0614,
+                      7.3464,
+                      5.0625
+                    ]
+                  }
+                ],
+                "confidence": 0.915,
+                "spans": [
+                  {
+                    "offset": 1133,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9233,
+                      4.9506,
+                      6.1394,
+                      4.9496,
+                      6.1394,
+                      5.0646,
+                      5.9235,
+                      5.0649
+                    ]
+                  }
+                ],
+                "confidence": 0.262,
+                "spans": [
+                  {
+                    "offset": 1128,
+                    "length": 4
+                  }
+                ]
+              },
+              "UnitPrice": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      3.0843,
+                      4.9573,
+                      3.301,
+                      4.957,
+                      3.301,
+                      5.0706,
+                      3.0842,
+                      5.0706
+                    ]
+                  }
+                ],
+                "confidence": 0.262,
+                "spans": [
+                  {
+                    "offset": 1118,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "MCA-DCC\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.0583,
+                  4.9583,
+                  7.5607,
+                  4.9388,
+                  7.561,
+                  5.0619,
+                  1.0587,
+                  5.0814
+                ]
+              }
+            ],
+            "confidence": 0.629,
+            "spans": [
+              {
+                "offset": 1110,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3458,
+                      5.1164,
+                      7.5557,
+                      5.1159,
+                      7.5557,
+                      5.2303,
+                      7.3461,
+                      5.2305
+                    ]
+                  }
+                ],
+                "confidence": 0.784,
+                "spans": [
+                  {
+                    "offset": 1161,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9239,
+                      5.1183,
+                      6.1394,
+                      5.1191,
+                      6.1394,
+                      5.2329,
+                      5.9241,
+                      5.2343
+                    ]
+                  }
+                ],
+                "confidence": 0.263,
+                "spans": [
+                  {
+                    "offset": 1156,
+                    "length": 4
+                  }
+                ]
+              },
+              "UnitPrice": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      3.084,
+                      5.1248,
+                      3.301,
+                      5.1256,
+                      3.301,
+                      5.239,
+                      3.0838,
+                      5.2392
+                    ]
+                  }
+                ],
+                "confidence": 0.285,
+                "spans": [
+                  {
+                    "offset": 1146,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "MCA-INT\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.0886,
+                  5.1224,
+                  7.5557,
+                  5.1134,
+                  7.5559,
+                  5.2352,
+                  1.0888,
+                  5.2442
+                ]
+              }
+            ],
+            "confidence": 0.57,
+            "spans": [
+              {
+                "offset": 1138,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3483,
+                      5.2824,
+                      7.5582,
+                      5.2812,
+                      7.5582,
+                      5.3954,
+                      7.3487,
+                      5.3961
+                    ]
+                  }
+                ],
+                "confidence": 0.771,
+                "spans": [
+                  {
+                    "offset": 1185,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.924,
+                      5.2835,
+                      6.1442,
+                      5.2835,
+                      6.1442,
+                      5.399,
+                      5.9241,
+                      5.3998
+                    ]
+                  }
+                ],
+                "confidence": 0.284,
+                "spans": [
+                  {
+                    "offset": 1180,
+                    "length": 4
+                  }
+                ]
+              },
+              "UnitPrice": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      3.0868,
+                      5.2885,
+                      3.3067,
+                      5.2891,
+                      3.3067,
+                      5.4062,
+                      3.0867,
+                      5.4062
+                    ]
+                  }
+                ],
+                "confidence": 0.242,
+                "spans": [
+                  {
+                    "offset": 1170,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "MCA\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.1976,
+                  5.2919,
+                  7.5582,
+                  5.2804,
+                  7.5584,
+                  5.3985,
+                  1.1978,
+                  5.41
+                ]
+              }
+            ],
+            "confidence": 0.539,
+            "spans": [
+              {
+                "offset": 1166,
+                "length": 23
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3479,
+                      5.4486,
+                      7.5606,
+                      5.4481,
+                      7.5604,
+                      5.5591,
+                      7.3479,
+                      5.5603
+                    ]
+                  }
+                ],
+                "confidence": 0.779,
+                "spans": [
+                  {
+                    "offset": 1213,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.925,
+                      5.4508,
+                      6.1434,
+                      5.4504,
+                      6.1434,
+                      5.5648,
+                      5.9252,
+                      5.5657
+                    ]
+                  }
+                ],
+                "confidence": 0.286,
+                "spans": [
+                  {
+                    "offset": 1208,
+                    "length": 4
+                  }
+                ]
+              },
+              "UnitPrice": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      3.0869,
+                      5.4561,
+                      3.301,
+                      5.456,
+                      3.301,
+                      5.5712,
+                      3.0869,
+                      5.5715
+                    ]
+                  }
+                ],
+                "confidence": 0.257,
+                "spans": [
+                  {
+                    "offset": 1198,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "MCA-AFF\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.0757,
+                  5.4564,
+                  7.5606,
+                  5.4371,
+                  7.5609,
+                  5.5608,
+                  1.0761,
+                  5.5801
+                ]
+              }
+            ],
+            "confidence": 0.539,
+            "spans": [
+              {
+                "offset": 1190,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3479,
+                      5.6151,
+                      7.5614,
+                      5.614,
+                      7.5614,
+                      5.7296,
+                      7.3482,
+                      5.7302
+                    ]
+                  }
+                ],
+                "confidence": 0.718,
+                "spans": [
+                  {
+                    "offset": 1237,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9255,
+                      5.6168,
+                      6.1451,
+                      5.6168,
+                      6.1451,
+                      5.7328,
+                      5.9258,
+                      5.733
+                    ]
+                  }
+                ],
+                "confidence": 0.268,
+                "spans": [
+                  {
+                    "offset": 1232,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "P/L\n0.00\n0.00\n0.00\n0.00\nJCB\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.222,
+                  5.6169,
+                  7.5614,
+                  5.614,
+                  7.5615,
+                  5.906,
+                  1.2221,
+                  5.9089
+                ]
+              }
+            ],
+            "confidence": 0.218,
+            "spans": [
+              {
+                "offset": 1218,
+                "length": 47
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3485,
+                      5.9493,
+                      7.5614,
+                      5.9484,
+                      7.5614,
+                      6.0603,
+                      7.3486,
+                      6.0622
+                    ]
+                  }
+                ],
+                "confidence": 0.734,
+                "spans": [
+                  {
+                    "offset": 1289,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9282,
+                      5.951,
+                      6.1451,
+                      5.9507,
+                      6.1451,
+                      6.0648,
+                      5.9284,
+                      6.0664
+                    ]
+                  }
+                ],
+                "confidence": 0.264,
+                "spans": [
+                  {
+                    "offset": 1284,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "JCB-AFF\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.1002,
+                  5.9559,
+                  7.5613,
+                  5.9276,
+                  7.5619,
+                  6.0613,
+                  1.1007,
+                  6.0896
+                ]
+              }
+            ],
+            "confidence": 0.357,
+            "spans": [
+              {
+                "offset": 1266,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3498,
+                      6.1146,
+                      7.5614,
+                      6.1136,
+                      7.5614,
+                      6.2304,
+                      7.3502,
+                      6.2315
+                    ]
+                  }
+                ],
+                "confidence": 0.735,
+                "spans": [
+                  {
+                    "offset": 1315,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9284,
+                      6.1165,
+                      6.1451,
+                      6.1162,
+                      6.1451,
+                      6.2328,
+                      5.9286,
+                      6.2346
+                    ]
+                  }
+                ],
+                "confidence": 0.265,
+                "spans": [
+                  {
+                    "offset": 1310,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "MCE-V\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.1495,
+                  6.1236,
+                  7.5613,
+                  6.0925,
+                  7.562,
+                  6.2305,
+                  1.1502,
+                  6.2616
+                ]
+              }
+            ],
+            "confidence": 0.354,
+            "spans": [
+              {
+                "offset": 1294,
+                "length": 25
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3514,
+                      6.282,
+                      7.5614,
+                      6.281,
+                      7.5614,
+                      6.3954,
+                      7.3517,
+                      6.3954
+                    ]
+                  }
+                ],
+                "confidence": 0.748,
+                "spans": [
+                  {
+                    "offset": 1339,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9289,
+                      6.2837,
+                      6.1451,
+                      6.2833,
+                      6.1451,
+                      6.3983,
+                      5.929,
+                      6.3993
+                    ]
+                  }
+                ],
+                "confidence": 0.255,
+                "spans": [
+                  {
+                    "offset": 1334,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "LCS\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.2194,
+                  6.2886,
+                  7.5614,
+                  6.2734,
+                  7.5617,
+                  6.3954,
+                  1.2197,
+                  6.4105
+                ]
+              }
+            ],
+            "confidence": 0.428,
+            "spans": [
+              {
+                "offset": 1320,
+                "length": 23
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.348,
+                      6.4486,
+                      7.5611,
+                      6.4478,
+                      7.561,
+                      6.5587,
+                      7.3484,
+                      6.5604
+                    ]
+                  }
+                ],
+                "confidence": 0.742,
+                "spans": [
+                  {
+                    "offset": 1364,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9274,
+                      6.4503,
+                      6.1451,
+                      6.4505,
+                      6.1451,
+                      6.5646,
+                      5.9275,
+                      6.5662
+                    ]
+                  }
+                ],
+                "confidence": 0.265,
+                "spans": [
+                  {
+                    "offset": 1359,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "AMEX\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.1735,
+                  6.4556,
+                  7.5611,
+                  6.435,
+                  7.5615,
+                  6.5609,
+                  1.1739,
+                  6.5815
+                ]
+              }
+            ],
+            "confidence": 0.249,
+            "spans": [
+              {
+                "offset": 1344,
+                "length": 24
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3498,
+                      6.6135,
+                      7.5614,
+                      6.6124,
+                      7.5614,
+                      6.7279,
+                      7.3502,
+                      6.7285
+                    ]
+                  }
+                ],
+                "confidence": 0.747,
+                "spans": [
+                  {
+                    "offset": 1392,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9281,
+                      6.6159,
+                      6.1451,
+                      6.6156,
+                      6.1451,
+                      6.732,
+                      5.9283,
+                      6.7323
+                    ]
+                  }
+                ],
+                "confidence": 0.265,
+                "spans": [
+                  {
+                    "offset": 1387,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "THSTD-V\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.0949,
+                  6.6213,
+                  7.5614,
+                  6.6124,
+                  7.5616,
+                  6.7354,
+                  1.0951,
+                  6.7444
+                ]
+              }
+            ],
+            "confidence": 0.453,
+            "spans": [
+              {
+                "offset": 1369,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3501,
+                      6.7808,
+                      7.5614,
+                      6.7799,
+                      7.5614,
+                      6.895,
+                      7.3503,
+                      6.8966
+                    ]
+                  }
+                ],
+                "confidence": 0.749,
+                "spans": [
+                  {
+                    "offset": 1420,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9293,
+                      6.7842,
+                      6.1451,
+                      6.7829,
+                      6.1451,
+                      6.8972,
+                      5.9295,
+                      6.8979
+                    ]
+                  }
+                ],
+                "confidence": 0.248,
+                "spans": [
+                  {
+                    "offset": 1415,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "THSTD-M\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.0833,
+                  6.7886,
+                  7.5614,
+                  6.7779,
+                  7.5616,
+                  6.8995,
+                  1.0835,
+                  6.9101
+                ]
+              }
+            ],
+            "confidence": 0.457,
+            "spans": [
+              {
+                "offset": 1397,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3478,
+                      6.9487,
+                      7.5614,
+                      6.9483,
+                      7.5614,
+                      7.0602,
+                      7.3481,
+                      7.0622
+                    ]
+                  }
+                ],
+                "confidence": 0.784,
+                "spans": [
+                  {
+                    "offset": 1448,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9282,
+                      6.9507,
+                      6.1451,
+                      6.9508,
+                      6.145,
+                      7.0639,
+                      5.9284,
+                      7.0656
+                    ]
+                  }
+                ],
+                "confidence": 0.239,
+                "spans": [
+                  {
+                    "offset": 1443,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "VSASCBP\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.0699,
+                  6.9536,
+                  7.5614,
+                  6.9424,
+                  7.5616,
+                  7.0666,
+                  1.0701,
+                  7.0778
+                ]
+              }
+            ],
+            "confidence": 0.569,
+            "spans": [
+              {
+                "offset": 1425,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3504,
+                      7.1144,
+                      7.5594,
+                      7.1138,
+                      7.5594,
+                      7.2276,
+                      7.3506,
+                      7.2284
+                    ]
+                  }
+                ],
+                "confidence": 0.775,
+                "spans": [
+                  {
+                    "offset": 1476,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9274,
+                      7.116,
+                      6.1451,
+                      7.1163,
+                      6.1451,
+                      7.2314,
+                      5.9275,
+                      7.232
+                    ]
+                  }
+                ],
+                "confidence": 0.251,
+                "spans": [
+                  {
+                    "offset": 1471,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "MCASCBP\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.0523,
+                  7.1184,
+                  7.5594,
+                  7.1138,
+                  7.5595,
+                  7.2403,
+                  1.0524,
+                  7.2449
+                ]
+              }
+            ],
+            "confidence": 0.569,
+            "spans": [
+              {
+                "offset": 1453,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3487,
+                      7.2802,
+                      7.5588,
+                      7.2797,
+                      7.5587,
+                      7.3934,
+                      7.3488,
+                      7.3947
+                    ]
+                  }
+                ],
+                "confidence": 0.775,
+                "spans": [
+                  {
+                    "offset": 1499,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9272,
+                      7.2813,
+                      6.1451,
+                      7.2804,
+                      6.1451,
+                      7.3968,
+                      5.9272,
+                      7.3982
+                    ]
+                  }
+                ],
+                "confidence": 0.295,
+                "spans": [
+                  {
+                    "offset": 1494,
+                    "length": 4
+                  }
+                ]
+              },
+              "UnitPrice": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      3.0909,
+                      7.2881,
+                      3.3067,
+                      7.2882,
+                      3.3067,
+                      7.4036,
+                      3.0907,
+                      7.4037
+                    ]
+                  }
+                ],
+                "confidence": 0.239,
+                "spans": [
+                  {
+                    "offset": 1484,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "UP\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.2502,
+                  7.2893,
+                  7.5588,
+                  7.2778,
+                  7.559,
+                  7.3959,
+                  1.2504,
+                  7.4073
+                ]
+              }
+            ],
+            "confidence": 0.536,
+            "spans": [
+              {
+                "offset": 1481,
+                "length": 22
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3474,
+                      7.4484,
+                      7.5614,
+                      7.4482,
+                      7.5614,
+                      7.5605,
+                      7.3476,
+                      7.5621
+                    ]
+                  }
+                ],
+                "confidence": 0.752,
+                "spans": [
+                  {
+                    "offset": 1523,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9273,
+                      7.4492,
+                      6.1451,
+                      7.4497,
+                      6.1451,
+                      7.5644,
+                      5.9273,
+                      7.566
+                    ]
+                  }
+                ],
+                "confidence": 0.232,
+                "spans": [
+                  {
+                    "offset": 1518,
+                    "length": 4
+                  }
+                ]
+              },
+              "UnitPrice": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      3.0907,
+                      7.4542,
+                      3.3067,
+                      7.4555,
+                      3.3067,
+                      7.5717,
+                      3.0903,
+                      7.5714
+                    ]
+                  }
+                ],
+                "confidence": 0.286,
+                "spans": [
+                  {
+                    "offset": 1508,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "TPN\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.2231,
+                  7.4412,
+                  7.5615,
+                  7.4482,
+                  7.5614,
+                  7.5787,
+                  1.223,
+                  7.5717
+                ]
+              }
+            ],
+            "confidence": 0.401,
+            "spans": [
+              {
+                "offset": 1504,
+                "length": 23
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "valueObject": {
+              "Amount": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      7.3488,
+                      7.6143,
+                      7.5614,
+                      7.6131,
+                      7.5614,
+                      7.7259,
+                      7.3489,
+                      7.7259
+                    ]
+                  }
+                ],
+                "confidence": 0.765,
+                "spans": [
+                  {
+                    "offset": 1547,
+                    "length": 4
+                  }
+                ]
+              },
+              "Tax": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      5.9272,
+                      7.6165,
+                      6.144,
+                      7.6164,
+                      6.1441,
+                      7.7304,
+                      5.9273,
+                      7.731
+                    ]
+                  }
+                ],
+                "confidence": 0.28,
+                "spans": [
+                  {
+                    "offset": 1542,
+                    "length": 4
+                  }
+                ]
+              },
+              "UnitPrice": {
+                "type": "currency",
+                "valueCurrency": {
+                  "amount": 0.0,
+                  "currencyCode": "THB"
+                },
+                "content": "0.00",
+                "boundingRegions": [
+                  {
+                    "pageNumber": 1,
+                    "polygon": [
+                      3.092,
+                      7.6221,
+                      3.3124,
+                      7.6227,
+                      3.3124,
+                      7.736,
+                      3.0917,
+                      7.7355
+                    ]
+                  }
+                ],
+                "confidence": 0.299,
+                "spans": [
+                  {
+                    "offset": 1532,
+                    "length": 4
+                  }
+                ]
+              }
+            },
+            "content": "SPC\n0.00\n0.00\n0.00\n0.00",
+            "boundingRegions": [
+              {
+                "pageNumber": 1,
+                "polygon": [
+                  1.2193,
+                  7.6233,
+                  7.5614,
+                  7.6131,
+                  7.5616,
+                  7.7322,
+                  1.2195,
+                  7.7425
+                ]
+              }
+            ],
+            "confidence": 0.536,
+            "spans": [
+              {
+                "offset": 1528,
+                "length": 23
+              }
+            ]
+          }
+        ]
+      },
+      "SubTotal": {
+        "type": "currency",
+        "valueCurrency": {
+          "amount": 4622.4,
+          "currencyCode": "THB"
+        },
+        "content": "4,622.40",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              2.8882,
+              7.7876,
+              3.3067,
+              7.7856,
+              3.3067,
+              7.9052,
+              2.8878,
+              7.9063
+            ]
+          }
+        ],
+        "confidence": 0.819,
+        "spans": [
+          {
+            "offset": 1465,
+            "length": 8
+          }
+        ]
+      },
+      "TotalDiscount": {
+        "type": "currency",
+        "valueCurrency": {
+          "amount": 115.56,
+          "currencyCode": "THB"
+        },
+        "content": "115.56",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              4.3942,
+              7.7832,
+              4.7287,
+              7.7826,
+              4.7287,
+              7.9028,
+              4.394,
+              7.9029
+            ]
+          }
+        ],
+        "confidence": 0.555,
+        "spans": [
+          {
+            "offset": 1474,
+            "length": 6
+          }
+        ]
+      },
+      "TotalTax": {
+        "type": "currency",
+        "valueCurrency": {
+          "amount": 3.47,
+          "currencyCode": "THB"
+        },
+        "content": "3.47",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              3.2454,
+              7.9545,
+              3.4666,
+              7.9555,
+              3.4666,
+              8.0679,
+              3.245,
+              8.0679
+            ]
+          }
+        ],
+        "confidence": 0.437,
+        "spans": [
+          {
+            "offset": 1514,
+            "length": 4
+          }
+        ]
+      },
+      "VendorAddress": {
+        "type": "address",
+        "content": "9 ถนนรัชดาภิเษก แขวงจตุจักร เขตจตุจักร กทม. 10900",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              2.2299,
+              0.4647,
+              4.3575,
+              0.4617,
+              4.3577,
+              0.6101,
+              2.2301,
+              0.6132
+            ]
+          }
+        ],
+        "confidence": 0.867,
+        "spans": [
+          {
+            "offset": 40,
+            "length": 43
+          }
+        ],
+        "valueAddress": {
+          "houseNumber": "9",
+          "road": "ถนนรัชดาภิเษก แขวง",
+          "postalCode": "10900",
+          "city": "จ",
+          "streetAddress": "9 ถนนรัชดาภิเษก แขวง",
+          "cityDistrict": "เขตจตุจักร",
+          "house": "ตุจักร"
+        }
+      },
+      "VendorAddressRecipient": {
+        "type": "string",
+        "valueString": "ธนาคารไทยพาณิชย์ จำกัด (มหาชน)",
+        "content": "ธนาคารไทยพาณิชย์ จำกัด (มหาชน)",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              2.228,
+              0.3168,
+              3.6076,
+              0.3157,
+              3.6077,
+              0.4619,
+              2.2281,
+              0.463
+            ]
+          }
+        ],
+        "confidence": 0.885,
+        "spans": [
+          {
+            "offset": 9,
+            "length": 26
+          }
+        ]
+      },
+      "VendorName": {
+        "type": "string",
+        "valueString": "ไทยพาณิชย์\nSCB",
+        "content": "ไทยพาณิชย์\nSCB",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              0.7796,
+              0.3621,
+              1.7019,
+              0.3573,
+              1.7037,
+              0.702,
+              0.7814,
+              0.7068
+            ]
+          }
+        ],
+        "confidence": 0.818,
+        "spans": [
+          {
+            "offset": 0,
+            "length": 8
+          },
+          {
+            "offset": 36,
+            "length": 3
+          }
+        ]
+      },
+      "VendorTaxId": {
+        "type": "string",
+        "valueString": "0107536000102",
+        "content": "0107536000102",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              3.9422,
+              0.6002,
+              4.6088,
+              0.5999,
+              4.6088,
+              0.7502,
+              3.9423,
+              0.7543
+            ]
+          }
+        ],
+        "confidence": 0.821,
+        "spans": [
+          {
+            "offset": 118,
+            "length": 13
+          }
+        ]
+      }
+    },
+    "confidence": 1,
+    "spans": [
+      {
+        "offset": 0,
+        "length": 1721
+      }
+    ]
+  }
+]
