@@ -39,7 +39,6 @@ client = DocumentIntelligenceClient(
     credential=AzureKeyCredential(key)
 )
 
-
 # ====================================================
 # 📌 Load patternsInvoice.json
 # ====================================================
