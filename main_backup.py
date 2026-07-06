@@ -169,24 +169,6 @@ def normalize_invoice_date(date_value):
 
     return text
 
-#ใช้เฉพาะตอน InvoiceDate ว่างเท่านั้น
-def extract_invoice_date_near_date_label(invoices):
-    lines = get_all_lines(invoices)
-
-    for line in lines:
-        upper = line.upper()
-
-        # ห้ามเอาวันครบกำหนด
-        if "DUE DATE" in upper or "ครบกำหนด" in line:
-            continue
-
-        # เอาเฉพาะบรรทัดที่เป็นวันที่เอกสาร
-        if "DATE" in upper or "วันที่" in line:
-            m = re.search(r"\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b", line)
-            if m:
-                return normalize_invoice_date(m.group())
-
-    return ""
 
 def parse_date_safe(date_str):
     normalized = normalize_invoice_date(date_str)
@@ -382,17 +364,6 @@ def find_all_by_patterns(patterns, text, flags=re.IGNORECASE):
 def extract_supplier_name_from_pages(invoices):
     lines = get_all_lines(invoices)
 
-    ssk_candidates = []
-
-    for line in lines[:30]:
-        text = line.strip()
-
-        if "SSK" in text.upper() and re.search(r"PLASTIC|พลาสติก", text, re.IGNORECASE):
-            ssk_candidates.append(text)
-
-    if ssk_candidates:
-        return max(ssk_candidates, key=len).replace(";", ",")
-
     full_text = "\n".join(lines).upper()
 
     # NIFCO
@@ -445,7 +416,7 @@ def extract_supplier_name_from_pages(invoices):
     # Supplier ปกติ
     search_limit = 20
 
-    for i, line in enumerate(lines[:search_limit]):
+    for line in lines[:search_limit]:
         upper = line.upper()
 
         if any(k.upper() in upper for k in SUPPLIER_SKIP_KEYWORDS):
@@ -453,25 +424,7 @@ def extract_supplier_name_from_pages(invoices):
 
         for pattern in SUPPLIER_NAME_PATTERNS:
             if re.search(pattern, upper, re.IGNORECASE):
-
-                supplier = line.strip()
-
-                # ถ้าบรรทัดก่อนหน้าเป็นภาษาอังกฤษสั้น ๆ เช่น SSK
-                if i > 0:
-                    prev = lines[i - 1].strip()
-
-                    if re.fullmatch(r"[A-Z]{2,10}", prev):
-                        supplier = prev + " " + supplier
-
-                # ถ้าบรรทัดถัดไปเป็นชื่อภาษาไทย ให้ต่อเข้าไป
-                if i + 1 < len(lines):
-                    nxt = lines[i + 1].strip()
-
-                    if "บริษัท" in nxt:
-                        supplier += " " + nxt
-
-                # return line.strip().replace(";", ",")
-                return supplier.replace(";", ",")
+                return line.strip().replace(";", ",")
     return ""
 
 # def extract_supplier_name_from_pages(invoices):
@@ -504,57 +457,6 @@ def extract_supplier_name_from_pages(invoices):
 def extract_vendor_branch(invoices, layout_result=None):
     lines = get_all_lines(invoices)
     full_text = "\n".join(lines)
-
-    # SPECIAL CASE: T.KRUNGTHAI INDUSTRIES
-    # บริษัทนี้ในหัวเอกสารมีรายการสาขา 00001/00002/00003 หลายบรรทัด
-    # ห้ามดึงจากรายการสาขาด้านซ้าย ให้ดึงจากช่อง "สาขาที่" ข้างเลขที่ใบกำกับภาษีด้านขวาเท่านั้น
-    if (
-        "T.KRUNGTHAI INDUSTRIES" in full_text.upper()
-        or "ที.กรุงไทยอุตสาหกรรม" in full_text
-        or "กรุงไทยอุตสาหกรรม" in full_text
-    ):
-        branch_value = ""
-
-        # 0.1) อ่านจาก layout โดยดูตำแหน่งด้านขวาของหน้า หรือบรรทัดที่มีเลขที่ใบกำกับภาษี
-        if layout_result:
-            for page in layout_result.pages:
-                page_width = getattr(page, "width", 0) or 0
-
-                for line in page.lines:
-                    text = line.content.strip() if line.content else ""
-                    if not text:
-                        continue
-
-                    m = re.search(r"สาขา\s*(?:ที่)?\s*[:：]?\s*(\d{1,10})", text, re.IGNORECASE)
-                    if not m:
-                        continue
-
-                    x_min = 0
-                    try:
-                        xs = line.polygon[0::2]
-                        x_min = min(xs) if xs else 0
-                    except Exception:
-                        x_min = 0
-
-                    # เงื่อนไขหลัก: อยู่ด้านขวาของหน้า หรืออยู่บรรทัดเดียวกับคำว่า เลขที่
-                    # เพื่อเลี่ยงรายการสาขาบริษัทด้านซ้ายบนเอกสาร
-                    if (page_width and x_min >= page_width * 0.55) or re.search(r"เลขที่|No\.?", text, re.IGNORECASE):
-                        branch_value = m.group(1)
-
-                if branch_value:
-                    return branch_value.zfill(5)
-
-        # 0.2) fallback จาก OCR line: เลือกบรรทัดที่มีทั้ง เลขที่ และ สาขา
-        for line in lines:
-            if re.search(r"เลขที่|No\.?", line, re.IGNORECASE) and re.search(r"สาขา", line):
-                m = re.search(r"สาขา\s*(?:ที่)?\s*[:：]?\s*(\d{1,10})", line, re.IGNORECASE)
-                if m:
-                    return m.group(1).zfill(5)
-
-        # 0.3) fallback สุดท้าย: เอา occurrence ท้าย ๆ เพราะช่องสาขาใบกำกับภาษีมักอยู่หลังรายการสาขาด้านบน
-        matches = re.findall(r"สาขา\s*(?:ที่)?\s*[:：]?\s*(\d{1,10})", full_text, re.IGNORECASE)
-        if matches:
-            return matches[-1].zfill(5)
 
     # 1) Checkbox selected: สำนักงานใหญ่ / สาขาที่
     if layout_result:
@@ -831,18 +733,6 @@ def extract_invoice_to_json(invoice, invoices):
 
     supplier_name = get_field_value(invoice.fields.get("VendorAddressRecipient"))
 
-    supplier_from_pages = extract_supplier_name_from_pages(invoices)
-
-    if supplier_from_pages:
-        if "SSK" in supplier_from_pages.upper() and "SSK" not in supplier_name.upper():
-            supplier_name = supplier_from_pages
-        elif not supplier_name or len(supplier_from_pages) > len(supplier_name):
-            supplier_name = supplier_from_pages
-    
-    #fix บริฐัท SSK Plastic Co.,Ltd. Plastic Co.,Ltd. 
-    supplier_name = re.sub(r"\s+", " ", supplier_name).strip()
-    supplier_name = supplier_name.replace("SSK Plastic Co.,Ltd. Plastic Co.,Ltd.", "SSK Plastic Co.,Ltd. บริษัท เอส.เอส.เค พลาสติก จำกัด")
-
     supplier = (supplier_name or "").strip()
 
     has_company_th = "บริษัท" in supplier
@@ -872,12 +762,6 @@ def extract_invoice_to_json(invoice, invoices):
 
     if supplier_name:
         supplier_name = supplier_name.replace(";", ",")
-
-    # Normalize SSK Supplier Name
-    supplier_name = supplier_name.strip()
-
-    if supplier_name == "SSK Plastic Co.,Ltd.":
-        supplier_name = "SSK Plastic Co.,Ltd. บริษัท เอส.เอส.เค พลาสติก จำกัด"
 
     invoice_date = normalize_invoice_date(
         get_field_value(invoice.fields.get("InvoiceDate"))
@@ -1122,13 +1006,6 @@ for input_pdf in pdf_list:
         for idx, invoice in enumerate(invoices.documents):
 
             invoice_data = extract_invoice_to_json(invoice, invoices)
-            
-            print("Azure InvoiceDate =", get_field_value(invoice.fields.get("InvoiceDate")))
-            print("OCR InvoiceDate =", invoice_date_ocr)
-
-            if not invoice_data.get("InvoiceDate") and invoice_date_ocr:
-                invoice_data["InvoiceDate"] = invoice_date_ocr
-                invoice_data["PostingDate"] = invoice_date_ocr
 
             if normalize_number(invoice_data.get("VATAmount", 0)) == 0:
                 
@@ -1163,9 +1040,9 @@ for input_pdf in pdf_list:
             if re.match(r"^(?:PO)?(?:410|140)\d{7}$", tax_invoice_no, re.IGNORECASE):
                 invoice_data["TaxInvoiceNo"] = ""
 
-            # if not invoice_data.get("InvoiceDate") and invoice_date_ocr:
-            #     invoice_data["InvoiceDate"] = invoice_date_ocr
-            #     invoice_data["PostingDate"] = invoice_date_ocr
+            if not invoice_data.get("InvoiceDate") and invoice_date_ocr:
+                invoice_data["InvoiceDate"] = invoice_date_ocr
+                invoice_data["PostingDate"] = invoice_date_ocr
 
             invoice_data["InvoiceDate"] = normalize_invoice_date(invoice_data.get("InvoiceDate"))
             invoice_data["PostingDate"] = normalize_invoice_date(invoice_data.get("PostingDate"))
