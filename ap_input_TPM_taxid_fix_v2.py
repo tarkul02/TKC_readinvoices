@@ -314,6 +314,31 @@ def clean_tax_id(value):
     return re.sub(r"\D", "", value)
 
 
+def fix_tax_invoice_no_by_vendor(tax_invoice_no, vendor_tax_id):
+    """
+    แก้ OCR เฉพาะ Vendor ที่รู้ปัญหาแล้วเท่านั้น
+    TPM Tax ID 0115539007424: OCR มักอ่าน No.S34716/69 เป็น No.834716/69
+    """
+    value = str(tax_invoice_no or "").strip()
+
+    if vendor_tax_id == "0115539007424":
+        # กรณีมี No. นำหน้า เช่น No.834716/69 -> No.S34716/69
+        value = re.sub(
+            r"(?i)\bNo\.?\s*8(?=\d{4,8}/\d{2,4})",
+            "No.S",
+            value
+        )
+
+        # กรณี Azure ตัดคำว่า No. ออก แล้วเหลือ 834716/69 -> S34716/69
+        value = re.sub(
+            r"^8(?=\d{4,8}/\d{2,4}$)",
+            "S",
+            value
+        )
+
+    return value
+
+
 def get_all_lines(invoices):
     lines = []
     for page in invoices.pages:
@@ -744,7 +769,7 @@ def clean_po_from_field(purchase_order_no):
 
     return ",".join(dict.fromkeys(cleaned))
 
-def extract_tax_invoice_no_from_layout(layout_result):
+def extract_tax_invoice_no_from_layout(layout_result, vendor_tax_id=""):
     lines = []
 
     for page in layout_result.pages:
@@ -754,6 +779,9 @@ def extract_tax_invoice_no_from_layout(layout_result):
 
     full_text = " ".join(lines)
     full_text = re.sub(r"\s+", " ", full_text)
+
+    # OCR Fix เฉพาะ VendorTaxId ที่กำหนด
+    full_text = fix_tax_invoice_no_by_vendor(full_text, vendor_tax_id)
 
     value = find_first_by_patterns(INVOICE_PATTERNS, full_text)
 
@@ -929,6 +957,8 @@ def extract_invoice_to_json(invoice, invoices):
 
     if vendor_tax_id in EXCLUDE_TAX_IDS:
         vendor_tax_id = ""
+
+    tax_invoice_no_clean = fix_tax_invoice_no_by_vendor(tax_invoice_no_clean, vendor_tax_id)
 
     return {
         "InvoiceDate": final_invoice_date,
@@ -1138,6 +1168,12 @@ for input_pdf in pdf_list:
             if not invoice_data.get("VendorTaxId"):
                 invoice_data["VendorTaxId"] = extract_tax_id_from_pages(invoices)
 
+            # แก้ TaxInvoiceNo ที่ Azure prebuilt-invoice อ่านมาก่อนแล้ว เช่น No.834716/69
+            invoice_data["TaxInvoiceNo"] = fix_tax_invoice_no_by_vendor(
+                invoice_data.get("TaxInvoiceNo", ""),
+                invoice_data.get("VendorTaxId", "")
+            )
+
             invoice_data["VendorBranch"] = extract_vendor_branch(invoices, layout_result)
 
             # ==================================================
@@ -1156,7 +1192,7 @@ for input_pdf in pdf_list:
             # ==================================================
 
             if not invoice_data.get("TaxInvoiceNo"):
-                fallback_no = extract_tax_invoice_no_from_layout(layout_result)
+                fallback_no = extract_tax_invoice_no_from_layout(layout_result, invoice_data.get("VendorTaxId", ""))
                 if fallback_no:
                     invoice_data["TaxInvoiceNo"] = fallback_no
                     print(f"✅ Fallback TaxInvoiceNo from layout: {fallback_no}")
@@ -1164,8 +1200,11 @@ for input_pdf in pdf_list:
             if not invoice_data.get("TaxInvoiceNo"):
                 fallback_no = find_invoice_no_from_words(invoices)
                 if fallback_no:
-                    invoice_data["TaxInvoiceNo"] = fallback_no
-                    print(f"✅ Fallback InvoiceId found from OCR: {fallback_no}")
+                    invoice_data["TaxInvoiceNo"] = fix_tax_invoice_no_by_vendor(
+                        fallback_no,
+                        invoice_data.get("VendorTaxId", "")
+                    )
+                    print(f"✅ Fallback InvoiceId found from OCR: {invoice_data['TaxInvoiceNo']}")
                 else:
                     print("⚠️ InvoiceId not found (even from OCR)")
 

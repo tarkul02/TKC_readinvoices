@@ -25,6 +25,10 @@
         {
             "name": "PO140",
             "regex": "(?:PO)?(140\\d{7})"
+        },
+        {
+            "name": "P Invoice",
+            "regex": "P\\d{9}"
         }
     ],
     "vendor_branch_patterns": [

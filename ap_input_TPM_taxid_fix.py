@@ -744,7 +744,7 @@ def clean_po_from_field(purchase_order_no):
 
     return ",".join(dict.fromkeys(cleaned))
 
-def extract_tax_invoice_no_from_layout(layout_result):
+def extract_tax_invoice_no_from_layout(layout_result, vendor_tax_id=""):
     lines = []
 
     for page in layout_result.pages:
@@ -754,6 +754,19 @@ def extract_tax_invoice_no_from_layout(layout_result):
 
     full_text = " ".join(lines)
     full_text = re.sub(r"\s+", " ", full_text)
+
+    # ==================================================
+    # OCR Fix เฉพาะ TPM / THAI PRESS AND MACHINERY PRODUCTS
+    # Tax ID: 0115539007424
+    # Azure OCR บางครั้งอ่าน No.S34716/69 เป็น No.834716/69
+    # แก้เฉพาะข้อความก่อนหาเลขที่ Invoice เท่านั้น ไม่แก้ layout_result ต้นฉบับ
+    # ==================================================
+    if clean_tax_id(vendor_tax_id) == "0115539007424":
+        full_text = re.sub(
+            r"(?i)\bNo\.?\s*8(?=\d{4,8}/\d{2,4})",
+            "No.S",
+            full_text
+        )
 
     value = find_first_by_patterns(INVOICE_PATTERNS, full_text)
 
@@ -765,7 +778,7 @@ def extract_tax_invoice_no_from_layout(layout_result):
         r"Invoice\s*No\.?\s*[:：]?\s*([A-Za-z0-9\-\/]{5,30})",
         r"เลขที่\s*[:：]?\s*([A-Za-z0-9\-\/]{5,30})",
         r"Account\s*No\.?\s*[:：]?\s*[A-Za-z0-9\-\/]+\s*No\.?\s*[:：]?\s*([A-Za-z]\d{6,20})",
-        r"\bNo\.?\s*[:：]?\s*([A-Za-z]\d{6,20})",
+        r"\bNo\.?\s*[:：]?\s*([A-Za-z][0-9\-/]{5,30})",
     ]
 
     value = find_first_by_patterns(fallback_patterns, full_text)
@@ -1140,23 +1153,11 @@ for input_pdf in pdf_list:
 
             invoice_data["VendorBranch"] = extract_vendor_branch(invoices, layout_result)
 
-            # ==================================================
-            # OCR Fix : TPM (Tax ID 0115539007424)
-            # ==================================================
-            if invoice_data.get("VendorTaxId") == "0115539007424":
-                for page in layout_result.pages:
-                    for line in page.lines:
-                        if line.content:
-                            line.content = re.sub(
-                                r'(?i)\bNo\.\s*8(?=\d{4,8}/\d{2,4})',
-                                "No.S",
-                                line.content
-                            )
-
-            # ==================================================
-
             if not invoice_data.get("TaxInvoiceNo"):
-                fallback_no = extract_tax_invoice_no_from_layout(layout_result)
+                fallback_no = extract_tax_invoice_no_from_layout(
+                    layout_result,
+                    invoice_data.get("VendorTaxId", "")
+                )
                 if fallback_no:
                     invoice_data["TaxInvoiceNo"] = fallback_no
                     print(f"✅ Fallback TaxInvoiceNo from layout: {fallback_no}")
