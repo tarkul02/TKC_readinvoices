@@ -23,7 +23,7 @@ key = "DJInxVJPCWIjReFOSKXpiDPx0Y4guPKPQ6rgi6myTkYppDOyY8c6JQQJ99CFACqBBLyXJ3w3A
 today_str = sys.argv[1]      # INPUT
 branch_email = sys.argv[2]   # INPUT
 
-mainpath = "C:/testTKC/TKC_readinvoices"
+mainpath = "C:/TOA/TKC_readinvoices"
 
 input_folder = rf"{mainpath}\INPUT\{branch_email}"
 temp_folder = rf"{mainpath}\TempSplit"
