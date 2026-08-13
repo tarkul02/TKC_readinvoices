@@ -23,7 +23,10 @@ key = "DJInxVJPCWIjReFOSKXpiDPx0Y4guPKPQ6rgi6myTkYppDOyY8c6JQQJ99CFACqBBLyXJ3w3A
 today_str = sys.argv[1]      # INPUT
 branch_email = sys.argv[2]   # INPUT
 
-mainpath = "C:/TKC/TKC_readinvoices"
+# Teh
+mainpath = "C:/testTKC/OpenAI_Invoice_Processing_AP"
+# Beer
+#mainpath = "C:/TKC/TKC_readinvoices"
 
 input_folder = rf"{mainpath}\INPUT\{branch_email}"
 temp_folder = rf"{mainpath}\TempSplit"
@@ -520,6 +523,74 @@ def append_msg(old_msg, new_msg):
         return old_msg + " | " + new_msg
     return old_msg or new_msg
 
+def extract_tax_remark(invoices):
+
+    full_text = get_all_text(invoices)
+
+    normalized_text = re.sub(r"[.\s]", "", full_text).upper()
+
+    tax_patterns = [
+        "จะต้องถูกหักภาษี ณ ที่จ่าย",
+        "ไม่สามารถหักภาษี ณ ที่จ่ายได้",
+        "ไม่สามารถหัก ณ ที่จ่ายได้",
+        "ไม่สามารถหัก ณ. ที่จ่าย",
+        "ไม่สามารถหักภาษี ณ ที่จ่าย",
+        "ห้ามหักภาษี ณ ที่จ่าย",
+        "NO WITH HOLDING TAX",
+        "ไม่หัก ณ ที่จ่าย",
+        "ไม่หักภาษี ณ ที่จ่าย",
+        "ให้หักภาษี ณ ที่จ่าย",
+        "หักภาษี ณ ที่จ่ายไม่ได้",
+        "หักภาษี ณ ที่จ่ายได้",
+        "หักภาษี ณ ที่จ่าย",
+        "กรุณาอย่าหัก ณ ที่จ่าย",
+        "กรุณาอย่าหักภาษีหัก ณ ที่จ่าย",
+        "กรุณาอย่าหักภาษี ณ ที่จ่าย",
+        "(NO.WHT)",
+        "NO DEDUCT WITH HOLDING TAX",
+        "รายการที่ไม่สามารถหักภาษี ณ ที่จ่าย",
+        "รายการที่ไม่สามารถหักภาษีณ.ที่จ่ายได้",
+        "หัก ณ ที่จ่ายทั้งหมด",
+        "หัก ณ. ที่จ่าย",
+        "ลูกค้าจึงไม่มีหน้าที่ หัก ภาษี ณ ที่จ่าย",
+        "ไม่ต้องหักภาษี ณ. ที่จ่าย",
+        "ไม่ต้องหักณที่จ่าย",
+        "สามารถหักภาษีณ.ที่จ่าย",
+        "สามารถหักภาษี ณ ที่จ่าย ได้",
+    ]
+
+    for pattern in tax_patterns:
+
+        normalized_pattern = re.sub(
+            r"[.\s]",
+            "",
+            pattern
+        ).upper()
+
+        if normalized_pattern in normalized_text:
+
+            regex_parts = []
+
+            for char in pattern:
+                if char in ". ":
+                    regex_parts.append(r"[.\s]*")
+                else:
+                    regex_parts.append(re.escape(char))
+
+            flexible_pattern = "".join(regex_parts)
+
+            match = re.search(
+                flexible_pattern,
+                full_text,
+                re.IGNORECASE
+            )
+
+            if match:
+                remark = match.group(0)
+
+                return remark
+
+    return ""
 
 # ====================================================
 # 📌 Pattern Matching Helpers
@@ -1164,6 +1235,7 @@ def extract_invoice_to_json(invoice, invoices):
         "VATAmount": normalize_number(vat_amount),
         "AmountIncVat": normalize_number(amount_inc_vat),
         "PurchaseOrderNo": clean_po_from_field(purchase_order_no1),
+        "TaxRemark": "",
         "Emessage": "",
     }
 
@@ -1190,6 +1262,7 @@ def build_excel_row(invoice):
         "CustomerTaxID": invoice.get("CustomerTaxID", ""),
         "CustomerBranch": invoice.get("CustomerBranch", ""),
         "PurchaseOrderNo": invoice.get("PurchaseOrderNo", ""),
+        "TaxRemark": invoice.get("TaxRemark", ""),
         "Emessage": invoice.get("Emessage", "")
     }
 
@@ -1205,6 +1278,7 @@ def merge_invoice_row(existing, new):
         "VendorBranch",
         "Address",
         "CustomerAddress",
+        "TaxRemark",
     ]:
         if (not existing.get(field)) and new.get(field):
             existing[field] = new.get(field)
@@ -1390,8 +1464,6 @@ for input_pdf in pdf_list:
                                 line.content
                             )
 
-            # ==================================================
-
             if not invoice_data.get("TaxInvoiceNo"):
                 fallback_no = extract_tax_invoice_no_from_layout(layout_result)
                 if fallback_no:
@@ -1418,6 +1490,16 @@ for input_pdf in pdf_list:
             #     invoice_data["InvoiceDate"] = invoice_date_ocr
             #     invoice_data["PostingDate"] = invoice_date_ocr
 
+            lines = get_all_lines(invoices)
+            full_text = "\n".join(lines).upper()
+
+            #Custom Nifco
+            if "NIFCO" in full_text or "นิฟโก้" in full_text:
+                invoice_data["TaxInvoiceNo"] = "OTH" + str(invoice_data.get("TaxInvoiceNo", ""))
+
+            taxRemark = extract_tax_remark(invoices)
+            invoice_data["TaxRemark"] = taxRemark
+
             invoice_data["InvoiceDate"] = normalize_invoice_date(invoice_data.get("InvoiceDate"))
             invoice_data["PostingDate"] = normalize_invoice_date(invoice_data.get("PostingDate"))
             invoice_data["Assignment"] = os.path.basename(input_pdf)
@@ -1425,13 +1507,6 @@ for input_pdf in pdf_list:
             normalize_amounts(invoice_data)
             add_or_merge_row(all_data, invoice_data)
         
-        lines = get_all_lines(invoices)
-        full_text = "\n".join(lines).upper()
-
-        #Custom Nifco
-        if "NIFCO" in full_text or "นิฟโก้" in full_text:
-            invoice_data["TaxInvoiceNo"] = "OTH" + str(invoice_data.get("TaxInvoiceNo", ""))
-
     pdf_name = os.path.basename(input_pdf)
     dest_path = os.path.join(dest_folder, pdf_name)
 
@@ -1464,6 +1539,7 @@ EXCEL_COLUMNS = [
     "CustomerTaxID",
     "CustomerBranch",
     "PurchaseOrderNo",
+    "TaxRemark",
     "Emessage",
 ]
 REQUIRED_FIELDS = [
