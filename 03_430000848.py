@@ -303,6 +303,193 @@ def normalize_number(value):
         return 0.0
 
 
+def get_address_value(field):
+    """
+    อ่าน Address จาก Azure Document Intelligence VendorAddress
+    ถ้า Azure ไม่มี value_address ให้ fallback ไปใช้ content
+    """
+    if not field:
+        return ""
+
+    try:
+        if hasattr(field, "value_address") and field.value_address:
+            addr = field.value_address
+            parts = []
+
+            for attr in [
+                "house_number",
+                "road",
+                "street_address",
+                "unit",
+                "city",
+                "state",
+                "postal_code",
+                "country_region"
+            ]:
+                value = getattr(addr, attr, None)
+                if value:
+                    value = str(value).strip()
+                    if value and value not in parts:
+                        parts.append(value)
+
+            if parts:
+                return ", ".join(parts)
+    except Exception:
+        pass
+
+    try:
+        if hasattr(field, "content") and field.content:
+            return str(field.content).strip()
+    except Exception:
+        pass
+
+    return ""
+
+
+def extract_vendor_address_from_pages(invoices):
+    """
+    OCR fallback สำหรับดึง Address ของ Vendor จากข้อความบน Invoice
+    """
+    lines = get_all_lines(invoices)
+    address_lines = []
+    found_address = False
+
+    stop_keywords = [
+        "TAX ID", "TAXID", "VAT ID", "VATID",
+        "TEL", "FAX", "ACCOUNT", "SHIP TO", "BILL TO",
+        "ATTN", "DATE", "PAGE", "INVOICE",
+        "ORIGINAL TAX INVOICE", "TERM OF PAYMENT", "REMARK"
+    ]
+
+    for line in lines:
+        text = line.strip()
+        if not text:
+            continue
+
+        # Address อยู่บรรทัดเดียวกับ label
+        m = re.match(r"^(?:Address|ที่อยู่)\s*[:：]?\s*(.+)$", text, re.IGNORECASE)
+        if m:
+            found_address = True
+            value = m.group(1).strip()
+            if value:
+                address_lines.append(value)
+            continue
+
+        # Address เป็น label เดี่ยว
+        if re.fullmatch(r"(?:Address|ที่อยู่)\s*[:：]?", text, re.IGNORECASE):
+            found_address = True
+            continue
+
+        if not found_address:
+            continue
+
+        upper = text.upper()
+
+        if any(k in upper for k in stop_keywords):
+            break
+
+        address_lines.append(text)
+
+        if len(address_lines) >= 4:
+            break
+
+    cleaned = []
+    for line in address_lines:
+        line = re.sub(r"\s+", " ", line).strip()
+        if line and line not in cleaned:
+            cleaned.append(line)
+
+    return " ".join(cleaned).replace(";", ",").strip()
+
+
+def extract_customer_address_from_pages(invoices):
+    """
+    OCR fallback สำหรับดึง Address ของ Customer / Account To / Bill To
+    โดยจะเริ่มอ่านหลังพบโซนลูกค้า และหยุดก่อน Ship To / Tax ID / Tel / ส่วนถัดไป
+    """
+    lines = get_all_lines(invoices)
+    address_lines = []
+    found_customer_zone = False
+    found_address = False
+
+    customer_zone_patterns = [
+        r"\bACCOUNT\s+TO\b",
+        r"\bBILL\s+TO\b",
+        r"ชื่อ.*ลูกค้า",
+        r"ชื่อลูกค้า",
+        r"ชื่อผู้ซื้อ",
+        r"ผู้ซื้อ",
+    ]
+
+    stop_patterns = [
+        r"\bSHIP\s+TO\b",
+        r"\bDELIVERY\s+TO\b",
+        r"\bATTN\b",
+        r"\bTAX\s*ID\b",
+        r"\bTAXID\b",
+        r"\bVAT\s*ID\b",
+        r"\bTEL\b",
+        r"\bFAX\b",
+        r"TERM\s+OF\s+PAYMENT",
+        r"REMARK",
+        r"ORIGINAL\s+TAX\s+INVOICE",
+    ]
+
+    for line in lines:
+        text = re.sub(r"\s+", " ", line.strip())
+        if not text:
+            continue
+
+        upper = text.upper()
+
+        if not found_customer_zone:
+            if any(re.search(p, text, re.IGNORECASE) for p in customer_zone_patterns):
+                found_customer_zone = True
+
+                # บางใบมี Address อยู่ในบรรทัด Account To เดียวกัน
+                m_inline = re.search(
+                    r"(?:Address|ที่อยู่)\s*[:：]?\s*(.+)$",
+                    text,
+                    re.IGNORECASE,
+                )
+                if m_inline:
+                    value = m_inline.group(1).strip()
+                    if value:
+                        address_lines.append(value)
+                        found_address = True
+            continue
+
+        # เมื่อเข้าพื้นที่ลูกค้าแล้ว ให้เริ่มจาก label Address/ที่อยู่
+        m = re.match(r"^(?:Address|ที่อยู่)\s*[:：]?\s*(.*)$", text, re.IGNORECASE)
+        if m:
+            found_address = True
+            value = m.group(1).strip()
+            if value:
+                address_lines.append(value)
+            continue
+
+        if not found_address:
+            continue
+
+        # หยุดเมื่อเจอส่วนถัดไป
+        if any(re.search(p, text, re.IGNORECASE) for p in stop_patterns):
+            break
+
+        address_lines.append(text)
+
+        # ปกติ address 1-3 บรรทัดก็เพียงพอ
+        if len(address_lines) >= 4:
+            break
+
+    cleaned = []
+    for line in address_lines:
+        line = re.sub(r"\s+", " ", line).strip(" ,;:-")
+        if line and line not in cleaned:
+            cleaned.append(line)
+
+    return " ".join(cleaned).replace(";", ",").strip()
+
+
 def clean_tax_id(value):
     value = str(value or "")
     value = (
@@ -830,6 +1017,36 @@ def extract_invoice_to_json(invoice, invoices):
 
     supplier_name = get_field_value(invoice.fields.get("VendorAddressRecipient"))
 
+    # ==========================================================
+    # Address
+    # ==========================================================
+    # 1) อ่านจาก Azure VendorAddress ก่อน
+    address = get_address_value(
+        invoice.fields.get("VendorAddress")
+    )
+
+    # 2) ถ้า Azure ไม่มี Vendor Address ให้ fallback ไป OCR
+    if not address:
+        address = extract_vendor_address_from_pages(invoices)
+
+    # ==========================================================
+    # Customer / Account To Address
+    # ==========================================================
+    # 1) อ่านจาก Azure CustomerAddress ก่อน
+    customer_address = get_address_value(
+        invoice.fields.get("CustomerAddress")
+    )
+
+    # บางเอกสาร Azure อาจ map ที่อยู่ผู้ซื้อไป BillingAddress
+    if not customer_address:
+        customer_address = get_address_value(
+            invoice.fields.get("BillingAddress")
+        )
+
+    # 2) ถ้า Azure ไม่มี Customer Address ให้ fallback ไป OCR จาก Account To / Bill To
+    if not customer_address:
+        customer_address = extract_customer_address_from_pages(invoices)
+
     supplier_from_pages = extract_supplier_name_from_pages(invoices)
 
     if supplier_from_pages:
@@ -935,6 +1152,11 @@ def extract_invoice_to_json(invoice, invoices):
         "PostingDate": final_invoice_date,
         "TaxInvoiceNo": tax_invoice_no_clean,
         "SupplierName": supplier_name,
+        "Address": address,
+        "CustomerAddress": customer_address,
+        "CustomerName": "",
+        "CustomerTaxID": "",
+        "CustomerBranch": "",
         "Assignment": "",
         "VendorTaxId": vendor_tax_id,
         "VendorBranch": "",
@@ -953,16 +1175,20 @@ def extract_invoice_to_json(invoice, invoices):
 def build_excel_row(invoice):
 
     return {
-        "InvoiceDate": invoice.get("InvoiceDate", ""),
-        "PostingDate": invoice.get("PostingDate", ""),
         "TaxInvoiceNo": invoice.get("TaxInvoiceNo", ""),
+        "InvoiceDate": invoice.get("InvoiceDate", ""),
         "SupplierName": invoice.get("SupplierName", ""),
+        "Address": invoice.get("Address", ""),
+        "CustomerAddress": invoice.get("CustomerAddress", ""),
         "Assignment": invoice.get("Assignment", ""),
         "VendorTaxId": invoice.get("VendorTaxId", ""),
         "VendorBranch": invoice.get("VendorBranch", ""),
         "TotalAmount": invoice.get("TotalAmount", ""),
         "VATAmount": invoice.get("VATAmount", ""),
         "AmountIncVat": invoice.get("AmountIncVat", ""),
+        "CustomerName": invoice.get("CustomerName", ""),
+        "CustomerTaxID": invoice.get("CustomerTaxID", ""),
+        "CustomerBranch": invoice.get("CustomerBranch", ""),
         "PurchaseOrderNo": invoice.get("PurchaseOrderNo", ""),
         "Emessage": invoice.get("Emessage", "")
     }
@@ -977,6 +1203,8 @@ def merge_invoice_row(existing, new):
         "Assignment",
         "VendorTaxId",
         "VendorBranch",
+        "Address",
+        "CustomerAddress",
     ]:
         if (not existing.get(field)) and new.get(field):
             existing[field] = new.get(field)
@@ -1109,9 +1337,30 @@ for input_pdf in pdf_list:
         for idx, invoice in enumerate(invoices.documents):
 
             invoice_data = extract_invoice_to_json(invoice, invoices)
-            
-            print("Azure InvoiceDate =", get_field_value(invoice.fields.get("InvoiceDate")))
-            print("OCR InvoiceDate =", invoice_date_ocr)
+
+            # Address fallback อีกชั้นก่อนทำขั้นตอนต่อไป
+            if not invoice_data.get("Address"):
+                invoice_data["Address"] = extract_vendor_address_from_pages(invoices)
+
+            if not invoice_data.get("CustomerAddress"):
+                invoice_data["CustomerAddress"] = extract_customer_address_from_pages(invoices)
+
+            # ==================================================
+            # Customer Fix จาก CustomerAddress
+            # ถ้าที่อยู่มีเลข 370 → กำหนด Customer เป็น XXX1
+            # ==================================================
+            customer_address = str(
+                invoice_data.get("CustomerAddress", "") or ""
+            ).strip()
+
+            if re.search(r"\b370\b", customer_address):
+                invoice_data["CustomerName"] = "THAI KOITO COMPANY LIMITED"
+                invoice_data["CustomerTaxID"] = "0105529030059"
+                invoice_data["CustomerBranch"] = "0000"
+            else:
+                invoice_data["CustomerName"] = "THAI KOITO COMPANY LIMITED"
+                invoice_data["CustomerTaxID"] = "0105529030059"
+                invoice_data["CustomerBranch"] = "1000"
 
             if not invoice_data.get("InvoiceDate") and invoice_date_ocr:
                 invoice_data["InvoiceDate"] = invoice_date_ocr
@@ -1200,23 +1449,26 @@ for input_pdf in pdf_list:
 # ==========================================================
 
 EXCEL_COLUMNS = [
-    "InvoiceDate",
-    "PostingDate",
     "TaxInvoiceNo",
+    "InvoiceDate",
     "SupplierName",
+    "Address",
     "Assignment",
     "VendorTaxId",
     "VendorBranch",
     "TotalAmount",
     "VATAmount",
     "AmountIncVat",
+    "CustomerAddress",
+    "CustomerName",
+    "CustomerTaxID",
+    "CustomerBranch",
     "PurchaseOrderNo",
     "Emessage",
 ]
 REQUIRED_FIELDS = [
-    "InvoiceDate",
-    "PostingDate",
     "TaxInvoiceNo",
+    "InvoiceDate",
     "TotalAmount",
     "VATAmount",
     "SupplierName",
