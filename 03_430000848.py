@@ -294,8 +294,8 @@ def normalize_invoice_date(date_value):
     return text
 
 #ใช้เฉพาะตอน InvoiceDate ว่างเท่านั้น
-def extract_invoice_date_near_date_label(invoices):
-    lines = get_all_lines(invoices)
+def extract_invoice_date_near_date_label(invoices, ocr_cache=None):
+    lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
 
     for line in lines:
         upper = line.upper()
@@ -323,16 +323,20 @@ def parse_date_safe(date_str):
     except Exception:
         return None
 
-def extract_oldest_date_from_text(invoices):
+def extract_oldest_date_from_text(invoices, ocr_cache=None):
     today = datetime.today()
     one_year_ago = today - timedelta(days=365)
     one_year_future = today + timedelta(days=365)
 
-    raw_text = ""
-    for page in invoices.pages:
-        raw_text += " " + " ".join(
-            [line.content for line in page.lines if line.content]
-        )
+    if ocr_cache is not None:
+        # เดิม function รวมทุก line ด้วยช่องว่าง จึงแปลง newline ใน cache เป็นช่องว่าง
+        raw_text = " " + ocr_cache["full_text"].replace("\n", " ")
+    else:
+        raw_text = ""
+        for page in invoices.pages:
+            raw_text += " " + " ".join(
+                [line.content for line in page.lines if line.content]
+            )
 
     date_pattern = re.compile(
         r"\b("
@@ -576,11 +580,11 @@ def validate_customer_branch(customer_address, input_branch):
 
     return input_branch, is_correct, expected_branch
 
-def extract_vendor_address_from_pages(invoices):
+def extract_vendor_address_from_pages(invoices, ocr_cache=None):
     """
     OCR fallback สำหรับดึง Address ของ Vendor จากข้อความบน Invoice
     """
-    lines = get_all_lines(invoices)
+    lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
     address_lines = []
     found_address = False
 
@@ -632,12 +636,12 @@ def extract_vendor_address_from_pages(invoices):
     return " ".join(cleaned).replace(";", ",").strip()
 
 
-def extract_customer_address_from_pages(invoices):
+def extract_customer_address_from_pages(invoices, ocr_cache=None):
     """
     OCR fallback สำหรับดึง Address ของ Customer / Account To / Bill To
     โดยจะเริ่มอ่านหลังพบโซนลูกค้า และหยุดก่อน Ship To / Tax ID / Tel / ส่วนถัดไป
     """
-    lines = get_all_lines(invoices)
+    lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
     address_lines = []
     found_customer_zone = False
     found_address = False
@@ -745,14 +749,53 @@ def get_all_text(invoices):
     return "\n".join(get_all_lines(invoices))
 
 
+def build_ocr_cache(invoices):
+    """
+    สร้าง OCR cache หนึ่งครั้งต่อหน้า หลัง Azure prebuilt-invoice เสร็จ
+
+    จุดประสงค์:
+    - ลดการวน invoices.pages / invoices.tables ซ้ำหลายรอบ
+    - ไม่เปลี่ยนข้อมูลที่ใช้ในการ extract จึงคง logic/accuracy เดิม
+    - Azure ยังคงเรียก prebuilt-invoice และ prebuilt-layout เหมือนเดิม
+    """
+    lines = get_all_lines(invoices)
+    full_text = "\n".join(lines)
+
+    table_texts = []
+    if hasattr(invoices, "tables"):
+        for table in invoices.tables:
+            for cell in table.cells:
+                text = cell.content.strip() if cell.content else ""
+                if text:
+                    table_texts.append(text)
+
+    table_text = "\n".join(table_texts)
+
+    # รักษาลำดับเดิมของ PO search: OCR Lines -> OCR Tables
+    if full_text and table_text:
+        po_base_text = full_text + "\n" + table_text
+    else:
+        po_base_text = full_text or table_text
+
+    return {
+        "lines": lines,
+        "full_text": full_text,
+        "full_text_upper": full_text.upper(),
+        "full_text_lower": full_text.lower(),
+        "table_texts": table_texts,
+        "table_text": table_text,
+        "po_base_text": po_base_text,
+    }
+
+
 def append_msg(old_msg, new_msg):
     if old_msg and new_msg:
         return old_msg + " | " + new_msg
     return old_msg or new_msg
 
-def extract_tax_remark(invoices):
+def extract_tax_remark(invoices, ocr_cache=None):
 
-    full_text = get_all_text(invoices)
+    full_text = ocr_cache["full_text"] if ocr_cache is not None else get_all_text(invoices)
 
     normalized_text = re.sub(r"[.\s]", "", full_text).upper()
 
@@ -947,8 +990,8 @@ def clean_supplier_name(name):
 
     return name
 
-def extract_supplier_name_from_pages(invoices):
-    lines = get_all_lines(invoices)
+def extract_supplier_name_from_pages(invoices, ocr_cache=None):
+    lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
 
     ssk_candidates = []
 
@@ -1063,7 +1106,7 @@ def extract_supplier_name_from_pages(invoices):
 
     return ""
 
-# def extract_supplier_name_from_pages(invoices):
+# def extract_supplier_name_from_pages(invoices, ocr_cache):
 #     lines = get_all_lines(invoices)
 
 #     full_text = "\n".join(lines).upper()
@@ -1090,9 +1133,9 @@ def extract_supplier_name_from_pages(invoices):
 
 #     return ""
 
-def extract_vendor_branch(invoices, layout_result=None):
-    lines = get_all_lines(invoices)
-    full_text = "\n".join(lines)
+def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None):
+    lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
+    full_text = ocr_cache["full_text"] if ocr_cache is not None else "\n".join(lines)
 
     # SPECIAL CASE: T.KRUNGTHAI INDUSTRIES
     # บริษัทนี้ในหัวเอกสารมีรายการสาขา 00001/00002/00003 หลายบรรทัด
@@ -1217,8 +1260,8 @@ def extract_vendor_branch(invoices, layout_result=None):
     return ""
 
 
-def extract_tax_id_from_pages(invoices):
-    full_text = get_all_text(invoices)
+def extract_tax_id_from_pages(invoices, ocr_cache=None):
+    full_text = ocr_cache["full_text"] if ocr_cache is not None else get_all_text(invoices)
 
     for pattern in TAXID_PATTERNS:
         for m in re.finditer(pattern, full_text, re.IGNORECASE | re.DOTALL):
@@ -1259,14 +1302,17 @@ def extract_tax_id_from_pages(invoices):
 
 #     return 0.0
 
-def extract_vat_from_pages(invoices):
+def extract_vat_from_pages(invoices, ocr_cache=None):
 
-    full_text = "\n".join(
-        line.content.strip()
-        for page in invoices.pages
-        for line in page.lines
-        if line.content
-    )
+    if ocr_cache is not None:
+        full_text = ocr_cache["full_text"]
+    else:
+        full_text = "\n".join(
+            line.content.strip()
+            for page in invoices.pages
+            for line in page.lines
+            if line.content
+        )
 
     full_text = full_text.replace(",", "")
 
@@ -1309,7 +1355,7 @@ def clean_po_list(po_list):
     return ",".join(dict.fromkeys(cleaned))
 
 
-def extract_po_from_text_and_tables(invoices, branch_code, extra_text=""):
+def extract_po_from_text_and_tables(invoices, branch_code, extra_text="", ocr_cache=None):
     """
     ค้นหา PO โดยอิง Customer Branch ที่ส่งมาตอน Run
 
@@ -1326,26 +1372,31 @@ def extract_po_from_text_and_tables(invoices, branch_code, extra_text=""):
 
     branch_code = str(branch_code or "").strip().zfill(4)
 
-    texts = []
+    if ocr_cache is not None:
+        full_text = ocr_cache["po_base_text"]
+        if extra_text:
+            full_text = full_text + ("\n" if full_text else "") + str(extra_text)
+    else:
+        texts = []
 
-    # OCR Lines
-    for page in invoices.pages:
-        for line in page.lines:
-            if line.content:
-                texts.append(line.content.strip())
+        # OCR Lines
+        for page in invoices.pages:
+            for line in page.lines:
+                if line.content:
+                    texts.append(line.content.strip())
 
-    # OCR Tables
-    if hasattr(invoices, "tables"):
-        for table in invoices.tables:
-            for cell in table.cells:
-                if cell.content:
-                    texts.append(cell.content.strip())
+        # OCR Tables
+        if hasattr(invoices, "tables"):
+            for table in invoices.tables:
+                for cell in table.cells:
+                    if cell.content:
+                        texts.append(cell.content.strip())
 
-    # PO ที่ Azure prebuilt-invoice ดึงมาแล้ว
-    if extra_text:
-        texts.append(str(extra_text))
+        # PO ที่ Azure prebuilt-invoice ดึงมาแล้ว
+        if extra_text:
+            texts.append(str(extra_text))
 
-    full_text = "\n".join(texts)
+        full_text = "\n".join(texts)
 
     # --------------------------------------------------
     # 1) หา PO ของ branch ปัจจุบันก่อน
@@ -1488,7 +1539,7 @@ def normalize_amounts(row):
     return row
 
 # 📌 Main Convert
-def extract_invoice_to_json(invoice, invoices):
+def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
 
     supplier_name = get_field_value(invoice.fields.get("VendorAddressRecipient"))
 
@@ -1502,7 +1553,7 @@ def extract_invoice_to_json(invoice, invoices):
 
     # 2) ถ้า Azure ไม่มี Vendor Address ให้ fallback ไป OCR
     if not address:
-        address = extract_vendor_address_from_pages(invoices)
+        address = extract_vendor_address_from_pages(invoices, ocr_cache)
 
     # ==========================================================
     # Customer / Account To Address
@@ -1520,9 +1571,9 @@ def extract_invoice_to_json(invoice, invoices):
 
     # 2) ถ้า Azure ไม่มี Customer Address ให้ fallback ไป OCR จาก Account To / Bill To
     if not customer_address:
-        customer_address = extract_customer_address_from_pages(invoices)
+        customer_address = extract_customer_address_from_pages(invoices, ocr_cache)
 
-    supplier_from_pages = extract_supplier_name_from_pages(invoices)
+    supplier_from_pages = extract_supplier_name_from_pages(invoices, ocr_cache)
 
     if supplier_from_pages:
         if "SSK" in supplier_from_pages.upper() and "SSK" not in supplier_name.upper():
@@ -1564,7 +1615,7 @@ def extract_invoice_to_json(invoice, invoices):
             and not has_en
         )
     ):
-        supplier_name = extract_supplier_name_from_pages(invoices)
+        supplier_name = extract_supplier_name_from_pages(invoices, ocr_cache)
 
     if supplier_name:
         supplier_name = supplier_name.replace(";", ",")
@@ -1812,24 +1863,30 @@ for input_pdf in pdf_list:
         if layout_result is None:
             continue
 
-        raw_page_text = get_all_text(invoices).lower()
+        # ==================================================
+        # FAST SAFE: สร้าง OCR cache เพียงครั้งเดียวต่อหน้า
+        # Azure ยังเรียก 2 model เหมือนเดิม จึงไม่ลดความแม่นยำ
+        # ==================================================
+        ocr_cache = build_ocr_cache(invoices)
+
+        raw_page_text = ocr_cache["full_text_lower"]
 
         if "good receipt" in raw_page_text or "goods receipt" in raw_page_text:
             print("⏭️ พบคำว่า 'Good Receipt' → ข้ามหน้านี้ทันที")
             continue
 
-        invoice_date_ocr = extract_oldest_date_from_text(invoices)
+        invoice_date_ocr = extract_oldest_date_from_text(invoices, ocr_cache)
 
         for idx, invoice in enumerate(invoices.documents):
 
-            invoice_data = extract_invoice_to_json(invoice, invoices)
+            invoice_data = extract_invoice_to_json(invoice, invoices, ocr_cache)
 
             # Address fallback อีกชั้นก่อนทำขั้นตอนต่อไป
             if not invoice_data.get("Address"):
-                invoice_data["Address"] = extract_vendor_address_from_pages(invoices)
+                invoice_data["Address"] = extract_vendor_address_from_pages(invoices, ocr_cache)
 
             if not invoice_data.get("CustomerAddress"):
-                invoice_data["CustomerAddress"] = extract_customer_address_from_pages(invoices)
+                invoice_data["CustomerAddress"] = extract_customer_address_from_pages(invoices, ocr_cache)
 
             # ==================================================
             # Customer Fix จาก CustomerAddress
@@ -1879,14 +1936,14 @@ for input_pdf in pdf_list:
 
             if normalize_number(invoice_data.get("VATAmount", 0)) == 0:
                 
-                vat_fallback = extract_vat_from_pages(invoices)
+                vat_fallback = extract_vat_from_pages(invoices, ocr_cache)
                 if vat_fallback:
                     invoice_data["VATAmount"] = vat_fallback
 
             if not invoice_data.get("VendorTaxId"):
-                invoice_data["VendorTaxId"] = extract_tax_id_from_pages(invoices)
+                invoice_data["VendorTaxId"] = extract_tax_id_from_pages(invoices, ocr_cache)
 
-            invoice_data["VendorBranch"] = extract_vendor_branch(invoices, layout_result)
+            invoice_data["VendorBranch"] = extract_vendor_branch(invoices, layout_result, ocr_cache)
 
             # ==================================================
             # OCR Fix : TPM (Tax ID 0115539007424)
@@ -1924,7 +1981,8 @@ for input_pdf in pdf_list:
             po_from_ocr, po_branch_mismatch = extract_po_from_text_and_tables(
                 invoices,
                 branch_email,
-                invoice_data.get("PurchaseOrderNo", "")
+                invoice_data.get("PurchaseOrderNo", ""),
+                ocr_cache
             )
 
             if po_from_ocr:
@@ -1944,14 +2002,14 @@ for input_pdf in pdf_list:
             #     invoice_data["InvoiceDate"] = invoice_date_ocr
             #     invoice_data["PostingDate"] = invoice_date_ocr
 
-            lines = get_all_lines(invoices)
-            full_text = "\n".join(lines).upper()
+            lines = ocr_cache["lines"]
+            full_text = ocr_cache["full_text_upper"]
 
             #Custom Nifco
             if "NIFCO" in full_text or "นิฟโก้" in full_text:
                 invoice_data["TaxInvoiceNo"] = "OTH" + str(invoice_data.get("TaxInvoiceNo", ""))
 
-            taxRemark = extract_tax_remark(invoices)
+            taxRemark = extract_tax_remark(invoices, ocr_cache)
             invoice_data["TaxRemark"] = taxRemark
 
             invoice_data["InvoiceDate"] = normalize_invoice_date(invoice_data.get("InvoiceDate"))
