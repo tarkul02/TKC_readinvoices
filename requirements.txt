@@ -13,3 +13,6 @@ azure-core>=1.35.0
 
 # Date
 python-dateutil>=2.9.0
+
+# Environment
+python-dotenv>=1.0.1

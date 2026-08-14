@@ -17,22 +17,39 @@ from dateutil import parser
 # ====================================================
 # 🔐 ตั้งค่า
 # ====================================================
-endpoint = "https://pwjddocintseapaid.cognitiveservices.azure.com/"
-key = "DJInxVJPCWIjReFOSKXpiDPx0Y4guPKPQ6rgi6myTkYppDOyY8c6JQQJ99CFACqBBLyXJ3w3AAALACOGmDHF"
+from config import (
+    AZURE_ENDPOINT,
+    AZURE_KEY,
+    get_paths
+)
 
-today_str = sys.argv[1]      # INPUT
-branch_email = sys.argv[2]   # INPUT
 
-# Teh
-mainpath = "C:/testTKC/OpenAI_Invoice_Processing_AP"
-# Beer
-#mainpath = "C:/TKC/TKC_readinvoices"
+# ====================================================
+# 📥 INPUT Parameter
+# ====================================================
 
-input_folder = rf"{mainpath}\INPUT\{branch_email}"
-temp_folder = rf"{mainpath}\TempSplit"
-output_excel = rf"{mainpath}\INPUT\{branch_email}\OutputExcel\{today_str}\Excel\OCR\All_Invoices.xlsx"
-dest_folder = rf"{mainpath}\INPUT\{branch_email}\OutputExcel\{today_str}"
+today_str = sys.argv[1]
+branch_email = sys.argv[2]
 
+
+# ====================================================
+# 📁 PATH
+# ====================================================
+
+paths = get_paths(today_str, branch_email)
+
+input_folder = paths["input_folder"]
+temp_folder = paths["temp_folder"]
+output_excel = paths["output_excel"]
+dest_folder = paths["dest_folder"]
+
+
+# ====================================================
+# 🔐 Azure
+# ====================================================
+
+endpoint = AZURE_ENDPOINT
+key = AZURE_KEY
 os.makedirs(temp_folder, exist_ok=True)
 os.makedirs(os.path.dirname(output_excel), exist_ok=True)
 os.makedirs(dest_folder, exist_ok=True)
