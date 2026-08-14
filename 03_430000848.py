@@ -789,9 +789,44 @@ def build_ocr_cache(invoices):
 
 
 def append_msg(old_msg, new_msg):
-    if old_msg and new_msg:
-        return old_msg + " | " + new_msg
-    return old_msg or new_msg
+    """
+    รวม Emessage โดยไม่ให้ข้อความซ้ำกัน
+
+    ตัวอย่าง:
+    old = "Customer address does not match | PO does not match customer branch"
+    new = "PO does not match customer branch"
+
+    result:
+    "Customer address does not match | PO does not match customer branch"
+    """
+
+    old_msg = str(old_msg or "").strip()
+    new_msg = str(new_msg or "").strip()
+
+    messages = []
+
+    # รวมทั้งข้อความเดิมและใหม่
+    for source in [old_msg, new_msg]:
+
+        if not source:
+            continue
+
+        # แยกด้วย |
+        for msg in source.split("|"):
+
+            msg = re.sub(r"\s+", " ", msg).strip()
+
+            if not msg:
+                continue
+
+            # ตรวจซ้ำแบบไม่สนตัวพิมพ์ใหญ่/เล็ก
+            if not any(
+                msg.casefold() == existing.casefold()
+                for existing in messages
+            ):
+                messages.append(msg)
+
+    return " | ".join(messages)
 
 def extract_tax_remark(invoices, ocr_cache=None):
 
@@ -1538,6 +1573,33 @@ def normalize_amounts(row):
 
     return row
 
+def check_copy_document(full_text):
+    """
+    ตรวจว่าเอกสารเป็นสำเนาหรือไม่
+
+    ตรวจคำว่า:
+    - COPY
+    - สำเนา
+
+    return True = เป็นเอกสารสำเนา
+    """
+
+    if not full_text:
+        return False
+
+    text = str(full_text)
+
+    # ภาษาไทย
+    if "สำเนา" in text:
+        return True
+
+    # ภาษาอังกฤษ
+    # ใช้ word boundary เพื่อไม่ให้ COPY ไป match กับคำอื่น
+    if re.search(r"\bCOPY\b", text, re.IGNORECASE):
+        return True
+
+    return False
+
 # 📌 Main Convert
 def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
 
@@ -1880,6 +1942,18 @@ for input_pdf in pdf_list:
         for idx, invoice in enumerate(invoices.documents):
 
             invoice_data = extract_invoice_to_json(invoice, invoices, ocr_cache)
+
+            # ==================================================
+            # Check COPY / สำเนา
+            # ==================================================
+
+            if check_copy_document(ocr_cache["full_text"]):
+                invoice_data["Emessage"] = append_msg(
+                    invoice_data.get("Emessage", ""),
+                    "เอกสารใบนี้เป็นสำเนา"
+                )
+
+                print("⚠️ เอกสารใบนี้เป็นสำเนา")
 
             # Address fallback อีกชั้นก่อนทำขั้นตอนต่อไป
             if not invoice_data.get("Address"):
