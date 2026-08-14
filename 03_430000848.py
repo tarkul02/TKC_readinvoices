@@ -325,46 +325,151 @@ def normalize_number(value):
 
 def get_address_value(field):
     """
-    อ่าน Address จาก Azure Document Intelligence VendorAddress
-    ถ้า Azure ไม่มี value_address ให้ fallback ไปใช้ content
+    อ่าน Address จาก Azure Document Intelligence
+
+    Priority:
+    1. field.content -> เก็บ Address ตามข้อความจริงบนเอกสาร
+    2. value_address -> fallback กรณี content ไม่มี
+
+    ช่วยป้องกัน:
+    - แขวง/เขตหาย
+    - Address ไม่ครบ
+    - house_number / street_address ซ้ำกัน
     """
+
     if not field:
         return ""
 
+    # ==========================================================
+    # 1. ใช้ OCR content ก่อน
+    # ==========================================================
+    try:
+        if hasattr(field, "content") and field.content:
+
+            content = str(field.content).strip()
+
+            # รวม newline เป็นช่องว่าง
+            content = re.sub(r"\s+", " ", content)
+
+            # ทำความสะอาด separator
+            content = content.strip(" ,;:-")
+
+            if content:
+                return content
+
+    except Exception:
+        pass
+
+    # ==========================================================
+    # 2. Fallback -> Azure structured address
+    # ==========================================================
     try:
         if hasattr(field, "value_address") and field.value_address:
+
             addr = field.value_address
+
             parts = []
 
-            for attr in [
+            # เรียงจากละเอียด -> กว้าง
+            attributes = [
                 "house_number",
                 "road",
                 "street_address",
                 "unit",
+                "city_district",
                 "city",
                 "state",
                 "postal_code",
-                "country_region"
-            ]:
+                "country_region",
+            ]
+
+            for attr in attributes:
+
                 value = getattr(addr, attr, None)
-                if value:
-                    value = str(value).strip()
-                    if value and value not in parts:
-                        parts.append(value)
+
+                if not value:
+                    continue
+
+                value = str(value).strip()
+
+                if not value:
+                    continue
+
+                # ----------------------------------------------
+                # ป้องกันค่าซ้ำ
+                #
+                # ตัวอย่าง:
+                # house_number = 607
+                # street_address = 607 ถนนอโศก
+                #
+                # ไม่ต้องเก็บ 607 ซ้ำ
+                # ----------------------------------------------
+                duplicate = False
+
+                for existing in parts:
+
+                    existing_lower = existing.casefold()
+                    value_lower = value.casefold()
+
+                    if (
+                        value_lower == existing_lower
+                        or value_lower in existing_lower
+                        or existing_lower in value_lower
+                    ):
+                        # ถ้า value ใหม่ละเอียดกว่า ให้แทนค่าเก่า
+                        if len(value) > len(existing):
+
+                            try:
+                                index = parts.index(existing)
+                                parts[index] = value
+                            except Exception:
+                                pass
+
+                        duplicate = True
+                        break
+
+                if not duplicate:
+                    parts.append(value)
 
             if parts:
                 return ", ".join(parts)
-    except Exception:
-        pass
 
-    try:
-        if hasattr(field, "content") and field.content:
-            return str(field.content).strip()
     except Exception:
         pass
 
     return ""
 
+def validate_customer_branch(customer_address, input_branch):
+    """
+    ตรวจสอบ Customer Branch จากที่อยู่ เทียบกับค่าที่ส่งเข้ามาตอนรันโปรแกรม
+
+    ตัวอย่าง:
+    python script.py testfile 0000
+
+    ถ้า CustomerAddress มีเลข 370
+        expected = 0000
+
+    ถ้าไม่มี 370
+        expected = 1000
+
+    return:
+        customer_branch
+        is_correct
+        expected_branch
+    """
+
+    customer_address = str(customer_address or "").strip()
+    input_branch = str(input_branch or "").strip().zfill(4)
+
+    # กำหนด branch ที่ควรจะเป็นจาก Address
+    if re.search(r"\b370\b", customer_address):
+        expected_branch = "0000"
+    else:
+        expected_branch = "1000"
+
+    is_correct = input_branch == expected_branch
+
+    return input_branch, is_correct, expected_branch
 
 def extract_vendor_address_from_pages(invoices):
     """
@@ -639,20 +744,104 @@ def find_all_by_patterns(patterns, text, flags=re.IGNORECASE):
 # ====================================================
 # 📌 Supplier / Vendor
 # ====================================================
-# def extract_supplier_name_from_pages(invoices):
-#     lines = get_all_lines(invoices)
 
-#     for line in lines[:20]:
-#         upper = line.upper()
 
-#         if any(k.upper() in upper for k in SUPPLIER_SKIP_KEYWORDS):
-#             continue
+def clean_supplier_name(name):
+    """
+    ทำความสะอาด Supplier Name แบบ Generic
+    - ตัดข้อความที่ไม่ใช่ชื่อบริษัท เช่น ISO / Certification / Website / Contact / Tax ID
+    - ลบชื่อบริษัทที่ซ้ำติดกัน
+    - รองรับทั้งภาษาไทยและอังกฤษ
+    """
 
-#         for pattern in SUPPLIER_NAME_PATTERNS:
-#             if re.search(pattern, upper, re.IGNORECASE):
-#                 return line.strip().replace(";", ",")
+    if not name:
+        return ""
 
-#     return ""
+    name = str(name).replace("\n", " ")
+    name = re.sub(r"\s+", " ", name).strip(" ,;:-")
+
+    if not name:
+        return ""
+
+    stop_patterns = [
+        # Certification / Quality
+        r"\bISO\s*\d{3,6}(?:\s*:\s*\d{4})?\b",
+        r"\bIATF\s*\d+\b",
+        r"\bCERTIFIED\b",
+        r"\bCERTIFICATION\b",
+        r"\bQUALITY\s+(?:SYSTEM|MANAGEMENT)\b",
+        r"\bQUALITY\s+STANDARD\b",
+        r"ได้รับมาตรฐาน",
+        r"มาตรฐานระบบคุณภาพ",
+        r"ระบบบริหารคุณภาพ",
+        r"ระบบคุณภาพ",
+        r"การรับรองมาตรฐาน",
+
+        # Website / Internet
+        r"\bhttps?://",
+        r"\bwww\.",
+        r"\bwebsite\b",
+
+        # Contact
+        r"\bTEL(?:EPHONE)?\.?\s*[:：]",
+        r"\bPHONE\s*[:：]",
+        r"\bFAX\.?\s*[:：]",
+        r"\bE-?MAIL\s*[:：]",
+
+        # Tax / document information
+        r"\bTAX\s*ID\b",
+        r"\bVAT\s*ID\b",
+        r"เลขประจำตัวผู้เสียภาษี",
+        r"\bTAX\s+INVOICE\b",
+        r"\bINVOICE\b",
+
+        # Address
+        r"\bADDRESS\s*[:：]",
+        r"ที่อยู่\s*[:：]",
+    ]
+
+    positions = []
+    for pattern in stop_patterns:
+        m = re.search(pattern, name, re.IGNORECASE)
+        if m:
+            positions.append(m.start())
+
+    if positions:
+        name = name[:min(positions)].strip(" ,;:-")
+
+    name = re.sub(r"\s+", " ", name).strip(" ,;:-")
+
+    if not name:
+        return ""
+
+    # ลบ phrase ที่ซ้ำติดกันแบบ Generic
+    words = name.split()
+    result = []
+    i = 0
+
+    while i < len(words):
+        duplicated = False
+        max_block = min((len(words) - i) // 2, 20)
+
+        for size in range(max_block, 1, -1):
+            block1 = words[i:i + size]
+            block2 = words[i + size:i + (size * 2)]
+
+            if " ".join(block1).casefold() == " ".join(block2).casefold():
+                result.extend(block1)
+                i += size * 2
+                duplicated = True
+                break
+
+        if not duplicated:
+            result.append(words[i])
+            i += 1
+
+    name = " ".join(result)
+    name = re.sub(r"\s+", " ", name).strip(" ,;:-")
+
+    return name
+
 def extract_supplier_name_from_pages(invoices):
     lines = get_all_lines(invoices)
 
@@ -662,7 +851,7 @@ def extract_supplier_name_from_pages(invoices):
         text = line.strip()
 
         if "SSK" in text.upper() and re.search(r"PLASTIC|พลาสติก", text, re.IGNORECASE):
-            ssk_candidates.append(text)
+            ssk_candidates.append(clean_supplier_name(text))
 
     if ssk_candidates:
         return max(ssk_candidates, key=len).replace(";", ",")
@@ -671,7 +860,6 @@ def extract_supplier_name_from_pages(invoices):
 
     # NIFCO
     if "NIFCO" in full_text or "นิฟโก้" in full_text:
-
         thai_name = ""
         eng_name = ""
 
@@ -686,10 +874,10 @@ def extract_supplier_name_from_pages(invoices):
                 and "DIGITALLY" not in text.upper()
                 and "THIS DOCUMENT" not in text.upper()
             ):
-                thai_name = text
+                thai_name = clean_supplier_name(text)
                 break
 
-        for line in lines:
+        for i, line in enumerate(lines):
             upper = line.upper()
 
             if (
@@ -698,19 +886,16 @@ def extract_supplier_name_from_pages(invoices):
                 and "THIS DOCUMENT" not in upper
                 and "RECEIVED" not in upper
             ):
-                eng_name = line.strip()
+                eng_name = clean_supplier_name(line.strip())
 
-                # ถ้า LTD แยกไปอีกบรรทัด
-                idx = lines.index(line)
-                if idx + 1 < len(lines):
-                    nxt = lines[idx + 1].strip().upper()
-
+                if i + 1 < len(lines):
+                    nxt = lines[i + 1].strip().upper()
                     if nxt in ("LTD.", "LTD", "LIMITED"):
-                        eng_name += " " + lines[idx + 1].strip()
+                        eng_name = clean_supplier_name(eng_name + " " + lines[i + 1].strip())
                 break
 
         if thai_name and eng_name:
-            return f"{thai_name} {eng_name}".replace(";", ",")
+            return clean_supplier_name(f"{thai_name} {eng_name}").replace(";", ",")
         if thai_name:
             return thai_name.replace(";", ",")
         if eng_name:
@@ -720,32 +905,57 @@ def extract_supplier_name_from_pages(invoices):
     search_limit = 20
 
     for i, line in enumerate(lines[:search_limit]):
-        upper = line.upper()
+        text = line.strip()
+        upper = text.upper()
 
         if any(k.upper() in upper for k in SUPPLIER_SKIP_KEYWORDS):
             continue
 
         for pattern in SUPPLIER_NAME_PATTERNS:
             if re.search(pattern, upper, re.IGNORECASE):
+                supplier = clean_supplier_name(text)
 
-                supplier = line.strip()
-
-                # ถ้าบรรทัดก่อนหน้าเป็นภาษาอังกฤษสั้น ๆ เช่น SSK
+                # ถ้าบรรทัดก่อนหน้าเป็นชื่อย่อภาษาอังกฤษสั้น ๆ เช่น SSK
                 if i > 0:
                     prev = lines[i - 1].strip()
-
-                    if re.fullmatch(r"[A-Z]{2,10}", prev):
+                    if (
+                        re.fullmatch(r"[A-Z0-9&.\-]{2,15}", prev, re.IGNORECASE)
+                        and prev.upper() not in supplier.upper()
+                    ):
                         supplier = prev + " " + supplier
 
-                # ถ้าบรรทัดถัดไปเป็นชื่อภาษาไทย ให้ต่อเข้าไป
+                # บรรทัดถัดไป: ต่อเฉพาะเมื่อดูเหมือนเป็นชื่อบริษัทอีกภาษาและไม่ซ้ำ
                 if i + 1 < len(lines):
                     nxt = lines[i + 1].strip()
+                    cleaned_next = clean_supplier_name(nxt)
 
-                    if "บริษัท" in nxt:
-                        supplier += " " + nxt
+                    current_has_thai = bool(re.search(r"[\u0E00-\u0E7F]", supplier))
+                    next_has_thai = bool(re.search(r"[\u0E00-\u0E7F]", cleaned_next))
+                    current_has_english = bool(re.search(r"[A-Za-z]", supplier))
+                    next_has_english = bool(re.search(r"[A-Za-z]", cleaned_next))
 
-                # return line.strip().replace(";", ",")
-                return supplier.replace(";", ",")
+                    next_is_company = bool(re.search(
+                        r"(บริษัท|จำกัด|CO\.?\s*,?\s*LTD\.?|COMPANY\s+LIMITED|PUBLIC\s+COMPANY)",
+                        cleaned_next,
+                        re.IGNORECASE,
+                    ))
+
+                    different_language = (
+                        (current_has_english and next_has_thai)
+                        or (current_has_thai and next_has_english)
+                    )
+
+                    not_duplicate = (
+                        cleaned_next
+                        and cleaned_next.casefold() not in supplier.casefold()
+                        and supplier.casefold() not in cleaned_next.casefold()
+                    )
+
+                    if next_is_company and different_language and not_duplicate:
+                        supplier += " " + cleaned_next
+
+                return clean_supplier_name(supplier).replace(";", ",")
+
     return ""
 
 # def extract_supplier_name_from_pages(invoices):
@@ -1143,9 +1353,14 @@ def extract_invoice_to_json(invoice, invoices):
         elif not supplier_name or len(supplier_from_pages) > len(supplier_name):
             supplier_name = supplier_from_pages
     
-    #fix บริฐัท SSK Plastic Co.,Ltd. Plastic Co.,Ltd. 
-    supplier_name = re.sub(r"\s+", " ", supplier_name).strip()
-    supplier_name = supplier_name.replace("SSK Plastic Co.,Ltd. Plastic Co.,Ltd.", "SSK Plastic Co.,Ltd. บริษัท เอส.เอส.เค พลาสติก จำกัด")
+    # ทำความสะอาด Supplier Name แบบ Generic
+    supplier_name = clean_supplier_name(supplier_name)
+
+    # Fix SSK เดิม
+    supplier_name = supplier_name.replace(
+        "SSK Plastic Co.,Ltd. Plastic Co.,Ltd.",
+        "SSK Plastic Co.,Ltd. บริษัท เอส.เอส.เค พลาสติก จำกัด"
+    )
 
     supplier = (supplier_name or "").strip()
 
@@ -1176,6 +1391,9 @@ def extract_invoice_to_json(invoice, invoices):
 
     if supplier_name:
         supplier_name = supplier_name.replace(";", ",")
+
+    # Clean อีกครั้งหลัง fallback/merge SupplierName เสร็จ
+    supplier_name = clean_supplier_name(supplier_name)
 
     # Normalize SSK Supplier Name
     supplier_name = supplier_name.strip()
@@ -1444,14 +1662,39 @@ for input_pdf in pdf_list:
                 invoice_data.get("CustomerAddress", "") or ""
             ).strip()
 
-            if re.search(r"\b370\b", customer_address):
-                invoice_data["CustomerName"] = "THAI KOITO COMPANY LIMITED"
-                invoice_data["CustomerTaxID"] = "0105529030059"
-                invoice_data["CustomerBranch"] = "0000"
+            # ==================================================
+            # Customer Fix + Validate Branch จากค่าที่ส่งมาตอน Run
+            # ==================================================
+
+            customer_address = str(
+                invoice_data.get("CustomerAddress", "") or ""
+            ).strip()
+
+            invoice_data["CustomerName"] = "THAI KOITO COMPANY LIMITED"
+            invoice_data["CustomerTaxID"] = "0105529030059"
+
+            customer_branch, branch_correct, expected_branch = validate_customer_branch(
+                customer_address,
+                branch_email
+            )
+
+            invoice_data["CustomerBranch"] = customer_branch
+
+            if branch_correct:
+                print(
+                    f"✅ Customer Branch ถูกต้อง "
+                    f"(Input={customer_branch}, Expected={expected_branch})"
+                )
             else:
-                invoice_data["CustomerName"] = "THAI KOITO COMPANY LIMITED"
-                invoice_data["CustomerTaxID"] = "0105529030059"
-                invoice_data["CustomerBranch"] = "1000"
+                print(
+                    f"❌ ที่อยู่ไม่สอดคลองกัน "
+                    f"(Input={customer_branch}, Expected={expected_branch})"
+                )
+
+                invoice_data["Emessage"] = append_msg(
+                    invoice_data.get("Emessage", ""),
+                    "Customer address does not match"
+                )
 
             if not invoice_data.get("InvoiceDate") and invoice_date_ocr:
                 invoice_data["InvoiceDate"] = invoice_date_ocr

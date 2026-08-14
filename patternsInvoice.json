@@ -17,52 +17,49 @@
             "regex": "IG\\d{3,6}[/-]\\d{3,5}"
         }
     ],
-    "po_patterns": [
-        {
-            "name": "PO410",
-            "regex": "(?:PO)?(410\\d{7})"
-        },
-        {
-            "name": "PO140",
-            "regex": "(?:PO)?(140\\d{7})"
-        },
-        {
-            "name": "P Invoice",
-            "regex": "P\\d{9}"
-        },
-        {
-            "name": "PO41000",
-            "regex": "(41000\\d{5})"
-        },
-        {
-            "name": "PO43000",
-            "regex": "(43000\\d{5})"
-        },
-        {
-            "name": "PO44000",
-            "regex": "(44000\\d{5})"
-        },
-        {
-            "name": "PO45000",
-            "regex": "(45000\\d{5})"
-        },
-        {
-            "name": "PO46000",
-            "regex": "(46000\\d{5})"
-        },
-        {
-            "name": "E22000",
-            "regex": "(E22000\\d{5})"
-        },
-        {
-            "name": "P22000",
-            "regex": "(P22000\\d{4})"
-        },
-        {
-            "name": "T22000",
-            "regex": "(T22000\\d{4})"
-        }
-    ],
+    "po_patterns": {
+        "0000": [
+            {
+                "name": "PO41000 LOCAL",
+                "regex": "(41000\\d{5})"
+            },
+            {
+                "name": "PO45000 LOCAL",
+                "regex": "(45000\\d{5})"
+            },
+            {
+                "name": "P22000 LOCAL",
+                "regex": "(P22000\\d{4})"
+            },
+            {
+                "name": "T22000 LOCAL",
+                "regex": "(T22000\\d{4})"
+            }
+        ],
+
+        "1000": [
+            {
+                "name": "PO43000 LOCAL",
+                "regex": "(43000\\d{5})"
+            },
+            {
+                "name": "PO44000 LOCAL",
+                "regex": "(44000\\d{5})"
+            },
+            {
+                "name": "E22000 LOCAL",
+                "regex": "(E22000\\d{5})"
+            },
+            {
+                "name": "K22000 PC LOCAL",
+                "regex": "(K22000\\d{5})"
+            },
+            {
+                "name": "PO46000 LOCAL",
+                "regex": "(46000\\d{5})"
+            }
+        ]
+    },
     "vendor_branch_patterns": [
         {
             "name": "Thai Branch",
