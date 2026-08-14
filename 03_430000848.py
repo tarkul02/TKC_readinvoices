@@ -830,39 +830,51 @@ def append_msg(old_msg, new_msg):
 
 def extract_tax_remark(invoices, ocr_cache=None):
 
-    full_text = ocr_cache["full_text"] if ocr_cache is not None else get_all_text(invoices)
+    full_text = (
+        ocr_cache["full_text"]
+        if ocr_cache is not None
+        else get_all_text(invoices)
+    )
 
     normalized_text = re.sub(r"[.\s]", "", full_text).upper()
 
     tax_patterns = [
+        "รายการที่ไม่สามารถหักภาษี ณ ที่จ่าย",
+        "รายการที่ไม่สามารถหักภาษีณ.ที่จ่ายได้",
+        "ลูกค้าจึงไม่มีหน้าที่ หัก ภาษี ณ ที่จ่าย",
         "จะต้องถูกหักภาษี ณ ที่จ่าย",
         "ไม่สามารถหักภาษี ณ ที่จ่ายได้",
         "ไม่สามารถหัก ณ ที่จ่ายได้",
         "ไม่สามารถหัก ณ. ที่จ่าย",
         "ไม่สามารถหักภาษี ณ ที่จ่าย",
         "ห้ามหักภาษี ณ ที่จ่าย",
+        "NO DEDUCT WITH HOLDING TAX",
         "NO WITH HOLDING TAX",
+        "(NO.WHT)",
         "ไม่หัก ณ ที่จ่าย",
         "ไม่หักภาษี ณ ที่จ่าย",
         "ให้หักภาษี ณ ที่จ่าย",
-        "หักภาษี ณ ที่จ่ายไม่ได้",
-        "หักภาษี ณ ที่จ่ายได้",
-        "หักภาษี ณ ที่จ่าย",
-        "กรุณาอย่าหัก ณ ที่จ่าย",
         "กรุณาอย่าหักภาษีหัก ณ ที่จ่าย",
         "กรุณาอย่าหักภาษี ณ ที่จ่าย",
-        "(NO.WHT)",
-        "NO DEDUCT WITH HOLDING TAX",
-        "รายการที่ไม่สามารถหักภาษี ณ ที่จ่าย",
-        "รายการที่ไม่สามารถหักภาษีณ.ที่จ่ายได้",
+        "กรุณาอย่าหัก ณ ที่จ่าย",
         "หัก ณ ที่จ่ายทั้งหมด",
-        "หัก ณ. ที่จ่าย",
-        "ลูกค้าจึงไม่มีหน้าที่ หัก ภาษี ณ ที่จ่าย",
         "ไม่ต้องหักภาษี ณ. ที่จ่าย",
         "ไม่ต้องหักณที่จ่าย",
-        "สามารถหักภาษีณ.ที่จ่าย",
         "สามารถหักภาษี ณ ที่จ่าย ได้",
+        "สามารถหักภาษีณ.ที่จ่าย",
+        "หักภาษี ณ ที่จ่ายไม่ได้",
+        "หักภาษี ณ ที่จ่ายได้",
+        "หัก ณ. ที่จ่าย",
+        "หัก ณ ที่จ่าย",
+        "หัก ภาษี ณ ที่จ่าย",
+        "หักภาษี ณ ที่จ่าย",
     ]
+
+    tax_patterns = sorted(
+        tax_patterns,
+        key=lambda x: len(re.sub(r"[.\s]", "", x)),
+        reverse=True
+    )
 
     for pattern in tax_patterns:
 
@@ -872,12 +884,15 @@ def extract_tax_remark(invoices, ocr_cache=None):
             pattern
         ).upper()
 
+        # เช็คแบบ normalized ก่อน
         if normalized_pattern in normalized_text:
 
             regex_parts = []
 
             for char in pattern:
-                if char in ". ":
+
+                # รองรับ whitespace ทุกชนิด
+                if char.isspace() or char == ".":
                     regex_parts.append(r"[.\s]*")
                 else:
                     regex_parts.append(re.escape(char))
@@ -891,8 +906,8 @@ def extract_tax_remark(invoices, ocr_cache=None):
             )
 
             if match:
-                remark = match.group(0)
 
+                remark = match.group(0)
                 return remark
 
     return ""
@@ -1181,7 +1196,6 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None):
         or "กรุงไทยอุตสาหกรรม" in full_text
     ):
         branch_value = ""
-
         # 0.1) อ่านจาก layout โดยดูตำแหน่งด้านขวาของหน้า หรือบรรทัดที่มีเลขที่ใบกำกับภาษี
         if layout_result:
             for page in layout_result.pages:
@@ -1254,16 +1268,16 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None):
                 if value:
                     return value.zfill(5)
 
-    # 2) ใบกำกับภาษีออกโดย : สำนักงานใหญ่ / สาขา
+    # 2) ใบกำกับภาษีออกโดย "สำนักงานใหญ่"
     if re.search(
-        r"(?:ออกโดย|สาขาที่ออกใบกำกับภาษี)\s*[:：]?\s*(สำนักงานใหญ่|Head\s*Office|HeadOffice)",
+        r'(?:ออกโดย|สาขาที่ออกใบกำกับภาษี)\s*[:：]?\s*["“”]?\s*(สำนักงานใหญ่|Head\s*Office|HeadOffice)',
         full_text,
         re.IGNORECASE,
     ):
         return "00000"
 
     m = re.search(
-        r"(?:ออกโดย|สาขาที่ออกใบกำกับภาษี)\s*[:：]?\s*สาขา(?:ที่|เลขที่)?\s*(\d{1,10})",
+        r'(?:ออกโดย|สาขาที่ออกใบกำกับภาษี)\s*[:：]?\s*["“”]?\s*สาขา(?:ที่|เลขที่)?\s*(\d{1,10})',
         full_text,
         re.IGNORECASE,
     )
@@ -1286,6 +1300,7 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None):
     vendor_text = "\n".join(vendor_lines)
 
     value = find_first_by_patterns(VENDOR_BRANCH_PATTERNS, vendor_text)
+
     if value:
         return value.zfill(5)
 
@@ -1589,16 +1604,17 @@ def check_copy_document(full_text):
 
     text = str(full_text)
 
-    # ภาษาไทย
-    if "สำเนา" in text:
-        return True
+    has_copy = (
+        "สำเนา" in text
+        or re.search(r"\bCOPY\b", text, re.IGNORECASE)
+    )
 
-    # ภาษาอังกฤษ
-    # ใช้ word boundary เพื่อไม่ให้ COPY ไป match กับคำอื่น
-    if re.search(r"\bCOPY\b", text, re.IGNORECASE):
-        return True
+    has_original = (
+        "ต้นฉบับ" in text
+        or re.search(r"\bORIGINAL\b", text, re.IGNORECASE)
+    )
 
-    return False
+    return bool(has_copy and not has_original)
 
 # 📌 Main Convert
 def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
@@ -1943,6 +1959,9 @@ for input_pdf in pdf_list:
 
             invoice_data = extract_invoice_to_json(invoice, invoices, ocr_cache)
 
+            lines = ocr_cache["lines"]
+            full_text = ocr_cache["full_text_upper"]
+
             # ==================================================
             # Check COPY / สำเนา
             # ==================================================
@@ -2017,6 +2036,10 @@ for input_pdf in pdf_list:
             if not invoice_data.get("VendorTaxId"):
                 invoice_data["VendorTaxId"] = extract_tax_id_from_pages(invoices, ocr_cache)
 
+            #Custom UNION PLASTIC
+            if "UNION PLASTIC" in full_text:
+                layout_result = None
+
             invoice_data["VendorBranch"] = extract_vendor_branch(invoices, layout_result, ocr_cache)
 
             # ==================================================
@@ -2075,9 +2098,6 @@ for input_pdf in pdf_list:
             # if not invoice_data.get("InvoiceDate") and invoice_date_ocr:
             #     invoice_data["InvoiceDate"] = invoice_date_ocr
             #     invoice_data["PostingDate"] = invoice_date_ocr
-
-            lines = ocr_cache["lines"]
-            full_text = ocr_cache["full_text_upper"]
 
             #Custom Nifco
             if "NIFCO" in full_text or "นิฟโก้" in full_text:
