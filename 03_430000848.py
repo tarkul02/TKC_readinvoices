@@ -96,8 +96,8 @@ DEFAULT_PATTERN_CONFIG = {
     ],
     "exclude_tax_ids": ["0105529030059"],
     "stop_keywords": [
-        "BILL TO", "SHIP TO", "TO:", "Customer", "Customer Name",
-        "Customer Code", "รหัสลูกค้า", "ชื่อลูกค้า", "Delivery To",
+        "BILL TO", "SHIP TO", "TO:", "Company", "Company Name",
+        "Company Code", "รหัสลูกค้า", "ชื่อลูกค้า", "Delivery To",
         "ส่งของที่", "ผู้ซื้อ"
     ],
     "supplier_skip_keywords": [
@@ -123,7 +123,7 @@ INVOICE_PATTERNS = [p["regex"] for p in pattern_config.get("invoice_patterns", D
 # ====================================================
 RAW_PO_CONFIG = pattern_config.get("po_patterns", DEFAULT_PATTERN_CONFIG["po_patterns"])
 
-# ใช้เก็บ config PO ที่แยกตาม Customer Branch เช่น {"0000": [...], "1000": [...]}
+# ใช้เก็บ config PO ที่แยกตาม Company Branch เช่น {"0000": [...], "1000": [...]}
 PO_PATTERN_CONFIG = RAW_PO_CONFIG if isinstance(RAW_PO_CONFIG, dict) else {}
 
 # PO_PATTERNS ใช้เป็น generic fallback และรองรับ clean_po_from_field() เดิม
@@ -167,7 +167,7 @@ SUPPLIER_NAME_PATTERNS = [p["regex"] for p in pattern_config.get("supplier_name_
 # - ค้นหา PO ของ branch ที่ส่งเข้ามาก่อน
 # - ถ้าไม่เจอ จึงค้นหา PO ของอีก branch
 # - ถ้าเจอ PO ของอีก branch จะเก็บ PO ไว้ และเพิ่ม Emessage
-#   "PO does not match customer branch"
+#   "PO does not match Company branch"
 PO_BRANCH_PATTERNS = {
     "0000": [
         r"(41000\d{5})",
@@ -187,7 +187,7 @@ PO_BRANCH_PATTERNS = {
 
 def get_po_patterns_by_branch(branch_code):
     """
-    คืน PO regex ของ Customer Branch ที่ระบุ
+    คืน PO regex ของ Company Branch ที่ระบุ
 
     Priority:
     1) patternsInvoice.json ถ้า po_patterns เป็น dict แยก branch
@@ -548,30 +548,30 @@ def get_address_value(field):
 
     return ""
 
-def validate_customer_branch(customer_address, input_branch):
+def validate_Company_branch(Company_address, input_branch):
     """
-    ตรวจสอบ Customer Branch จากที่อยู่ เทียบกับค่าที่ส่งเข้ามาตอนรันโปรแกรม
+    ตรวจสอบ Company Branch จากที่อยู่ เทียบกับค่าที่ส่งเข้ามาตอนรันโปรแกรม
 
     ตัวอย่าง:
     python script.py testfile 0000
 
-    ถ้า CustomerAddress มีเลข 370
+    ถ้า CompanyAddress มีเลข 370
         expected = 0000
 
     ถ้าไม่มี 370
         expected = 1000
 
     return:
-        customer_branch
+        Company_branch
         is_correct
         expected_branch
     """
 
-    customer_address = str(customer_address or "").strip()
+    Company_address = str(Company_address or "").strip()
     input_branch = str(input_branch or "").strip().zfill(4)
 
     # กำหนด branch ที่ควรจะเป็นจาก Address
-    if re.search(r"\b370\b", customer_address):
+    if re.search(r"\b(?:370|10570)\b", Company_address):
         expected_branch = "0000"
     else:
         expected_branch = "1000"
@@ -636,17 +636,17 @@ def extract_vendor_address_from_pages(invoices, ocr_cache=None):
     return " ".join(cleaned).replace(";", ",").strip()
 
 
-def extract_customer_address_from_pages(invoices, ocr_cache=None):
+def extract_Company_address_from_pages(invoices, ocr_cache=None):
     """
-    OCR fallback สำหรับดึง Address ของ Customer / Account To / Bill To
+    OCR fallback สำหรับดึง Address ของ Company / Account To / Bill To
     โดยจะเริ่มอ่านหลังพบโซนลูกค้า และหยุดก่อน Ship To / Tax ID / Tel / ส่วนถัดไป
     """
     lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
     address_lines = []
-    found_customer_zone = False
+    found_Company_zone = False
     found_address = False
 
-    customer_zone_patterns = [
+    Company_zone_patterns = [
         r"\bACCOUNT\s+TO\b",
         r"\bBILL\s+TO\b",
         r"ชื่อ.*ลูกค้า",
@@ -676,9 +676,9 @@ def extract_customer_address_from_pages(invoices, ocr_cache=None):
 
         upper = text.upper()
 
-        if not found_customer_zone:
-            if any(re.search(p, text, re.IGNORECASE) for p in customer_zone_patterns):
-                found_customer_zone = True
+        if not found_Company_zone:
+            if any(re.search(p, text, re.IGNORECASE) for p in Company_zone_patterns):
+                found_Company_zone = True
 
                 # บางใบมี Address อยู่ในบรรทัด Account To เดียวกัน
                 m_inline = re.search(
@@ -788,16 +788,86 @@ def build_ocr_cache(invoices):
     }
 
 
+def normalize_vendor_specific_invoice_no(invoice_data, full_text=""):
+    """
+    Final vendor-specific normalization for TaxInvoiceNo.
+
+    TPM rule:
+    - VendorTaxId 0115539007424, or TPM / THAI PRESS AND MACHINERY in vendor text
+    - OCR often reads the printed letter S after "No." as digit 8
+    - Example: No.834716/69 -> No.S34716/69
+
+    This function is intentionally called at the LAST step before add_or_merge_row(),
+    so later extraction/fallback logic cannot overwrite the corrected value.
+    """
+    if not isinstance(invoice_data, dict):
+        return invoice_data
+
+    invoice_no = str(invoice_data.get("TaxInvoiceNo", "") or "").strip()
+    if not invoice_no:
+        return invoice_data
+
+    vendor_tax_id = clean_tax_id(invoice_data.get("VendorTaxId", ""))
+    supplier_name = str(invoice_data.get("SupplierName", "") or "")
+    detect_text = f"{supplier_name}\n{full_text or ''}".upper()
+
+    is_tpm = (
+        vendor_tax_id == "0115539007424"
+        or "THAI PRESS AND MACHINERY" in detect_text
+        or "ไทยเพรส แอนด์ แมชชีนเนอรี่" in detect_text
+        or re.search(r"(?:^|\s)TPM(?:\s|$)", detect_text) is not None
+    )
+
+    if not is_tpm:
+        return invoice_data
+
+    original = invoice_no
+
+    # Normalize OCR separators/spaces but preserve the invoice number itself.
+    # Accepted examples:
+    #   No.834716/69
+    #   No 834716/69
+    #   No.: 834716/69
+    #   NO. 834716/69
+    m = re.fullmatch(
+        r"(?i)NO\.?\s*[:：]?\s*8\s*(\d{4,10}\s*/\s*\d{2,4})",
+        invoice_no,
+    )
+
+    if m:
+        suffix = re.sub(r"\s+", "", m.group(1))
+        invoice_no = f"No.S{suffix}"
+        invoice_data["TaxInvoiceNo"] = invoice_no
+        print(f"✅ TPM FINAL NORMALIZE: {original} -> {invoice_no}")
+    else:
+        # If Azure already read S correctly, only normalize the prefix formatting.
+        m = re.fullmatch(
+            r"(?i)NO\.?\s*[:：]?\s*S\s*(\d{4,10}\s*/\s*\d{2,4})",
+            invoice_no,
+        )
+        if m:
+            suffix = re.sub(r"\s+", "", m.group(1))
+            invoice_no = f"S{suffix}"
+            invoice_data["TaxInvoiceNo"] = invoice_no
+            print(f"✅ TPM InvoiceNo already S: {original} -> {invoice_no}")
+        else:
+            print(
+                f"⚠️ TPM detected but InvoiceNo format not matched: {repr(original)}"
+            )
+
+    return invoice_data
+
+
 def append_msg(old_msg, new_msg):
     """
     รวม Emessage โดยไม่ให้ข้อความซ้ำกัน
 
     ตัวอย่าง:
-    old = "Customer address does not match | PO does not match customer branch"
-    new = "PO does not match customer branch"
+    old = "Company address does not match | PO does not match Company branch"
+    new = "PO does not match Company branch"
 
     result:
-    "Customer address does not match | PO does not match customer branch"
+    "Company address does not match | PO does not match Company branch"
     """
 
     old_msg = str(old_msg or "").strip()
@@ -847,6 +917,7 @@ def extract_tax_remark(invoices, ocr_cache=None):
         "ไม่สามารถหัก ณ ที่จ่ายได้",
         "ไม่สามารถหัก ณ. ที่จ่าย",
         "ไม่สามารถหักภาษี ณ ที่จ่าย",
+        "ไม่สามารถหัก ภาษี ณ ที่จ่าย",
         "ห้ามหักภาษี ณ ที่จ่าย",
         "NO DEDUCT WITH HOLDING TAX",
         "NO WITH HOLDING TAX",
@@ -1284,7 +1355,7 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None):
     if m:
         return m.group(1).zfill(5)
 
-    # 3) Vendor zone only, stop before customer/TKC
+    # 3) Vendor zone only, stop before Company/TKC
     vendor_lines = []
 
     stop_patterns = [
@@ -1407,7 +1478,7 @@ def clean_po_list(po_list):
 
 def extract_po_from_text_and_tables(invoices, branch_code, extra_text="", ocr_cache=None):
     """
-    ค้นหา PO โดยอิง Customer Branch ที่ส่งมาตอน Run
+    ค้นหา PO โดยอิง Company Branch ที่ส่งมาตอน Run
 
     ลำดับ:
     1) หา PO ของ branch ปัจจุบันก่อน
@@ -1634,22 +1705,22 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
         address = extract_vendor_address_from_pages(invoices, ocr_cache)
 
     # ==========================================================
-    # Customer / Account To Address
+    # Company / Account To Address
     # ==========================================================
-    # 1) อ่านจาก Azure CustomerAddress ก่อน
-    customer_address = get_address_value(
-        invoice.fields.get("CustomerAddress")
+    # 1) อ่านจาก Azure CompanyAddress ก่อน
+    Company_address = get_address_value(
+        invoice.fields.get("CompanyAddress")
     )
 
     # บางเอกสาร Azure อาจ map ที่อยู่ผู้ซื้อไป BillingAddress
-    if not customer_address:
-        customer_address = get_address_value(
+    if not Company_address:
+        Company_address = get_address_value(
             invoice.fields.get("BillingAddress")
         )
 
-    # 2) ถ้า Azure ไม่มี Customer Address ให้ fallback ไป OCR จาก Account To / Bill To
-    if not customer_address:
-        customer_address = extract_customer_address_from_pages(invoices, ocr_cache)
+    # 2) ถ้า Azure ไม่มี Company Address ให้ fallback ไป OCR จาก Account To / Bill To
+    if not Company_address:
+        Company_address = extract_Company_address_from_pages(invoices, ocr_cache)
 
     supplier_from_pages = extract_supplier_name_from_pages(invoices, ocr_cache)
 
@@ -1765,10 +1836,10 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
         "TaxInvoiceNo": tax_invoice_no_clean,
         "SupplierName": supplier_name,
         "Address": address,
-        "CustomerAddress": customer_address,
-        "CustomerName": "",
-        "CustomerTaxID": "",
-        "CustomerBranch": "",
+        "CompanyAddress": Company_address,
+        "CompanyName": "",
+        "CompanyTaxID": "",
+        "CompanyBranch": "",
         "Assignment": "",
         "VendorTaxId": vendor_tax_id,
         "VendorBranch": "",
@@ -1792,16 +1863,16 @@ def build_excel_row(invoice):
         "InvoiceDate": invoice.get("InvoiceDate", ""),
         "SupplierName": invoice.get("SupplierName", ""),
         "Address": invoice.get("Address", ""),
-        "CustomerAddress": invoice.get("CustomerAddress", ""),
+        "CompanyAddress": invoice.get("CompanyAddress", ""),
         "Assignment": invoice.get("Assignment", ""),
         "VendorTaxId": invoice.get("VendorTaxId", ""),
         "VendorBranch": invoice.get("VendorBranch", ""),
         "TotalAmount": invoice.get("TotalAmount", ""),
         "VATAmount": invoice.get("VATAmount", ""),
         "AmountIncVat": invoice.get("AmountIncVat", ""),
-        "CustomerName": invoice.get("CustomerName", ""),
-        "CustomerTaxID": invoice.get("CustomerTaxID", ""),
-        "CustomerBranch": invoice.get("CustomerBranch", ""),
+        "CompanyName": invoice.get("CompanyName", ""),
+        "CompanyTaxID": invoice.get("CompanyTaxID", ""),
+        "CompanyBranch": invoice.get("CompanyBranch", ""),
         "PurchaseOrderNo": invoice.get("PurchaseOrderNo", ""),
         "TaxRemark": invoice.get("TaxRemark", ""),
         "Emessage": invoice.get("Emessage", "")
@@ -1818,7 +1889,7 @@ def merge_invoice_row(existing, new):
         "VendorTaxId",
         "VendorBranch",
         "Address",
-        "CustomerAddress",
+        "CompanyAddress",
         "TaxRemark",
     ]:
         if (not existing.get(field)) and new.get(field):
@@ -1978,49 +2049,49 @@ for input_pdf in pdf_list:
             if not invoice_data.get("Address"):
                 invoice_data["Address"] = extract_vendor_address_from_pages(invoices, ocr_cache)
 
-            if not invoice_data.get("CustomerAddress"):
-                invoice_data["CustomerAddress"] = extract_customer_address_from_pages(invoices, ocr_cache)
+            if not invoice_data.get("CompanyAddress"):
+                invoice_data["CompanyAddress"] = extract_Company_address_from_pages(invoices, ocr_cache)
 
             # ==================================================
-            # Customer Fix จาก CustomerAddress
-            # ถ้าที่อยู่มีเลข 370 → กำหนด Customer เป็น XXX1
+            # Company Fix จาก CompanyAddress
+            # ถ้าที่อยู่มีเลข 370 → กำหนด Company เป็น XXX1
             # ==================================================
-            customer_address = str(
-                invoice_data.get("CustomerAddress", "") or ""
+            Company_address = str(
+                invoice_data.get("CompanyAddress", "") or ""
             ).strip()
 
             # ==================================================
-            # Customer Fix + Validate Branch จากค่าที่ส่งมาตอน Run
+            # Company Fix + Validate Branch จากค่าที่ส่งมาตอน Run
             # ==================================================
 
-            customer_address = str(
-                invoice_data.get("CustomerAddress", "") or ""
+            Company_address = str(
+                invoice_data.get("CompanyAddress", "") or ""
             ).strip()
 
-            invoice_data["CustomerName"] = "THAI KOITO COMPANY LIMITED"
-            invoice_data["CustomerTaxID"] = "0105529030059"
+            invoice_data["CompanyName"] = "THAI KOITO COMPANY LIMITED"
+            invoice_data["CompanyTaxID"] = "0105529030059"
 
-            customer_branch, branch_correct, expected_branch = validate_customer_branch(
-                customer_address,
+            Company_branch, branch_correct, expected_branch = validate_Company_branch(
+                Company_address,
                 branch_email
             )
 
-            invoice_data["CustomerBranch"] = customer_branch
+            invoice_data["CompanyBranch"] = Company_branch
 
             if branch_correct:
                 print(
-                    f"✅ Customer Branch ถูกต้อง "
-                    f"(Input={customer_branch}, Expected={expected_branch})"
+                    f"✅ Company Branch ถูกต้อง "
+                    f"(Input={Company_branch}, Expected={expected_branch})"
                 )
             else:
                 print(
                     f"❌ ที่อยู่ไม่สอดคลองกัน "
-                    f"(Input={customer_branch}, Expected={expected_branch})"
+                    f"(Input={Company_branch}, Expected={expected_branch})"
                 )
 
                 invoice_data["Emessage"] = append_msg(
                     invoice_data.get("Emessage", ""),
-                    "Customer address does not match"
+                    "Company address does not match"
                 )
 
             if not invoice_data.get("InvoiceDate") and invoice_date_ocr:
@@ -2035,6 +2106,65 @@ for input_pdf in pdf_list:
 
             if not invoice_data.get("VendorTaxId"):
                 invoice_data["VendorTaxId"] = extract_tax_id_from_pages(invoices, ocr_cache)
+            
+            # ==================================================
+            # TPM Final InvoiceNo Fix
+            # ==================================================
+            if invoice_data.get("VendorTaxId") == "0115539007424":
+
+                tax_invoice_no = str(
+                    invoice_data.get("TaxInvoiceNo", "") or ""
+                ).strip()
+
+                if tax_invoice_no:
+
+                    fixed_invoice_no = re.sub(
+                        r'(?i)\bNo\.?\s*8(?=\d{4,8}/\d{2,4}\b)',
+                        "No.S",
+                        tax_invoice_no
+                    )
+
+                    if fixed_invoice_no != tax_invoice_no:
+
+                        print(
+                            f"✅ TPM Final InvoiceNo Fix: "
+                            f"{tax_invoice_no} -> {fixed_invoice_no}"
+                        )
+
+                        invoice_data["TaxInvoiceNo"] = fixed_invoice_no
+
+
+            # ==================================================
+            # LAZY LAYOUT DECISION
+            # ==================================================
+            is_union_plastic = "UNION PLASTIC" in full_text
+            vendor_tax_id = clean_tax_id(
+                invoice_data.get("VendorTaxId", "")
+            )
+
+            vendor_tax_id = clean_tax_id(
+                invoice_data.get("VendorTaxId", "")
+            )
+
+            # ตรวจ Tax ID จาก OCR แต่ละบรรทัดด้วย
+            tpm_tax_id_found_in_ocr = any(
+                "0115539007424" in clean_tax_id(line)
+                for line in ocr_cache["lines"]
+            )
+
+            is_tpm = (
+                vendor_tax_id == "0115539007424"
+                or tpm_tax_id_found_in_ocr
+                or "THAI PRESS AND MACHINERY" in full_text.upper()
+                or "ไทยเพรส แอนด์ แมชชีนเนอรี่" in full_text
+            )
+
+            print(
+                f"🔎 TPM DETECT: "
+                f"VendorTaxId={vendor_tax_id} | "
+                f"TaxIdInOCR={tpm_tax_id_found_in_ocr} | "
+                f"is_tpm={is_tpm}"
+            )
 
             #Custom UNION PLASTIC
             if "UNION PLASTIC" in full_text:
@@ -2045,7 +2175,10 @@ for input_pdf in pdf_list:
             # ==================================================
             # OCR Fix : TPM (Tax ID 0115539007424)
             # ==================================================
-            if invoice_data.get("VendorTaxId") == "0115539007424":
+            if (
+                invoice_data.get("VendorTaxId") == "0115539007424"
+                and layout_result is not None
+            ):
                 for page in layout_result.pages:
                     for line in page.lines:
                         if line.content:
@@ -2055,8 +2188,12 @@ for input_pdf in pdf_list:
                                 line.content
                             )
 
-            if not invoice_data.get("TaxInvoiceNo"):
+            if (
+                not invoice_data.get("TaxInvoiceNo")
+                and layout_result is not None
+            ):
                 fallback_no = extract_tax_invoice_no_from_layout(layout_result)
+
                 if fallback_no:
                     invoice_data["TaxInvoiceNo"] = fallback_no
                     print(f"✅ Fallback TaxInvoiceNo from layout: {fallback_no}")
@@ -2066,11 +2203,63 @@ for input_pdf in pdf_list:
                 if fallback_no:
                     invoice_data["TaxInvoiceNo"] = fallback_no
                     print(f"✅ Fallback InvoiceId found from OCR: {fallback_no}")
+
+                    if is_tpm:
+
+                        tax_invoice_no = str(
+                            invoice_data.get("TaxInvoiceNo", "") or ""
+                        ).strip()
+
+                        fixed_invoice_no = re.sub(
+                            r'(?i)No\.?\s*8(?=\d{4,8}/\d{2,4}\b)',
+                            "No.S",
+                            tax_invoice_no
+                        )
+
+                        invoice_data["TaxInvoiceNo"] = fixed_invoice_no
+
+                        print(
+                            f"✅ TPM FINAL: "
+                            f"{tax_invoice_no} -> {fixed_invoice_no}"
+                        )
+
                 else:
                     print("⚠️ InvoiceId not found (even from OCR)")
 
             # ==================================================
-            # PO Validation by Customer Branch
+            # TPM FINAL TaxInvoiceNo Fix
+            # No.8xxxxx/xx -> No.Sxxxxx/xx
+            # ==================================================
+            if is_tpm:
+
+                tax_invoice_no = str(
+                    invoice_data.get("TaxInvoiceNo", "") or ""
+                ).strip()
+
+                print(
+                    f"🔎 TPM CHECK: "
+                    f"VendorTaxId={invoice_data.get('VendorTaxId')} | "
+                    f"TaxInvoiceNo={tax_invoice_no}"
+                )
+
+                if tax_invoice_no:
+
+                    fixed_invoice_no = re.sub(
+                        r'(?i)No\.?\s*8(?=\d{4,8}/\d{2,4}\b)',
+                        "No.S",
+                        tax_invoice_no
+                    )
+
+                    if fixed_invoice_no != tax_invoice_no:
+                        print(
+                            f"✅ TPM InvoiceNo Fix: "
+                            f"{tax_invoice_no} -> {fixed_invoice_no}"
+                        )
+
+                        invoice_data["TaxInvoiceNo"] = fixed_invoice_no
+
+            # ==================================================
+            # PO Validation by Company Branch
             # 1) หา PO ของ branch ที่ส่งมาตอน Run ก่อน
             # 2) ถ้าไม่เจอ -> หาอีก branch
             # 3) ถ้าเจออีก branch -> เก็บ PO และเพิ่ม Emessage
@@ -2088,7 +2277,7 @@ for input_pdf in pdf_list:
             if po_branch_mismatch:
                 invoice_data["Emessage"] = append_msg(
                     invoice_data.get("Emessage", ""),
-                    "PO does not match customer branch"
+                    "PO does not match Company branch"
                 )
 
             tax_invoice_no = (invoice_data.get("TaxInvoiceNo") or "").strip()
@@ -2109,6 +2298,18 @@ for input_pdf in pdf_list:
             invoice_data["InvoiceDate"] = normalize_invoice_date(invoice_data.get("InvoiceDate"))
             invoice_data["PostingDate"] = normalize_invoice_date(invoice_data.get("PostingDate"))
             invoice_data["Assignment"] = os.path.basename(input_pdf)
+
+            # ==========================================================
+            # FINAL Vendor-specific TaxInvoiceNo normalization
+            # Run here LAST so no fallback can overwrite the corrected value
+            # ==========================================================
+            normalize_vendor_specific_invoice_no(invoice_data, full_text)
+
+            print(
+                f"📌 FINAL BEFORE SAVE: "
+                f"VendorTaxId={invoice_data.get('VendorTaxId')} | "
+                f"TaxInvoiceNo={invoice_data.get('TaxInvoiceNo')}"
+            )
 
             normalize_amounts(invoice_data)
             add_or_merge_row(all_data, invoice_data)
@@ -2140,10 +2341,10 @@ EXCEL_COLUMNS = [
     "TotalAmount",
     "VATAmount",
     "AmountIncVat",
-    "CustomerAddress",
-    "CustomerName",
-    "CustomerTaxID",
-    "CustomerBranch",
+    "CompanyAddress",
+    "CompanyName",
+    "CompanyTaxID",
+    "CompanyBranch",
     "PurchaseOrderNo",
     "TaxRemark",
     "Emessage",
@@ -2178,7 +2379,7 @@ for row in all_data:
 
         if abs(vat_amount - expected_vat) > 0.01:
             errors.append(
-                f"VATAmount ไม่ถูกต้อง (Expected {expected_vat:.2f})"
+                "กรุณาเช็ค Amount ทั้ง 3 ช่อง"
             )
 
     except Exception:
