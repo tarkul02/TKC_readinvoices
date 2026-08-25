@@ -43,25 +43,37 @@ if not MAIN_PATH:
 
 
 # ====================================================
-# 📁 สร้าง Path
+# 📁 สร้าง Path แยกตาม Process
 # ====================================================
 
-def get_paths(today_str, branch_email):
+def get_paths(today_str, branch_email, process_name):
 
+    # -----------------------------
+    # INPUT ของแต่ละ Process
+    # -----------------------------
     input_folder = os.path.join(
         MAIN_PATH,
         "INPUT",
+        process_name,
         branch_email
     )
 
+    # -----------------------------
+    # Temp ของแต่ละ Process
+    # -----------------------------
     temp_folder = os.path.join(
         MAIN_PATH,
-        "TempSplit"
+        "TempSplit",
+        process_name
     )
 
+    # -----------------------------
+    # Excel Output
+    # -----------------------------
     output_excel = os.path.join(
         MAIN_PATH,
         "INPUT",
+        process_name,
         branch_email,
         "OutputExcel",
         today_str,
@@ -70,9 +82,13 @@ def get_paths(today_str, branch_email):
         "All_Invoices.xlsx"
     )
 
+    # -----------------------------
+    # Destination
+    # -----------------------------
     dest_folder = os.path.join(
         MAIN_PATH,
         "INPUT",
+        process_name,
         branch_email,
         "OutputExcel",
         today_str

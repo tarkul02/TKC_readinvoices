@@ -36,7 +36,7 @@ branch_email = sys.argv[2]
 # 📁 PATH
 # ====================================================
 
-paths = get_paths(today_str, branch_email)
+paths = get_paths(today_str, branch_email, "Process3")
 
 input_folder = paths["input_folder"]
 temp_folder = paths["temp_folder"]
