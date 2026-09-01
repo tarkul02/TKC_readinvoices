@@ -548,6 +548,77 @@ def get_address_value(field):
 
     return ""
 
+
+def clean_company_address_start(address):
+    """
+    Clean CompanyAddress:
+    1. ตัดข้อความขยะก่อนเลขที่บ้าน
+    2. ลบ OCR คำว่า Address ที่ติดหน้า Samutprakarn/Samutprakan
+    3. ตัดข้อความหลัง postcode 10570 หรือ 25140
+    4. ถ้าหาเลขที่บ้านไม่ได้ ให้เก็บข้อความเดิมไว้
+    """
+
+    if not address:
+        return ""
+
+    address = re.sub(r"\s+", " ", str(address)).strip(" ,;:-")
+
+    # ----------------------------------------------------------
+    # ลบ OCR noise:
+    # AddressSamutprakarn -> Samutprakarn
+    # Address Samutprakarn -> Samutprakarn
+    # ----------------------------------------------------------
+    address = re.sub(
+        r"(?i)\bAddress\s*(?=Samut\s*prak(?:arn|an))",
+        "",
+        address
+    )
+
+    address = re.sub(r"\s+", " ", address).strip(" ,;:-")
+
+    # ----------------------------------------------------------
+    # หาเลขที่บ้าน
+    # เช่น 370 / 555 / 99/9 / 123/456
+    # ----------------------------------------------------------
+    matches = list(
+        re.finditer(
+            r"\b\d{1,4}(?:/\d{1,5})?\b",
+            address
+        )
+    )
+
+    cleaned = address
+
+    for match in matches:
+        value = match.group(0)
+
+        # ป้องกันไม่ให้ postcode ถูกมองเป็นเลขที่บ้าน
+        if value in ("10570", "25140"):
+            continue
+
+        cleaned = address[match.start():]
+        break
+
+    # ----------------------------------------------------------
+    # ตัดทุกอย่างหลัง postcode
+    # รองรับ:
+    # 10570
+    # , 10570,
+    # 25140 THAILAND
+    # ----------------------------------------------------------
+    postcode_match = re.search(
+        r"\b(?:10570|25140)\b",
+        cleaned
+    )
+
+    if postcode_match:
+        cleaned = cleaned[:postcode_match.end()]
+
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = cleaned.strip(" ,;:-.")
+
+    return cleaned
+
 def validate_Company_branch(Company_address, input_branch):
     """
     ตรวจสอบ Company Branch จากที่อยู่ เทียบกับค่าที่ส่งเข้ามาตอนรันโปรแกรม
@@ -1015,12 +1086,175 @@ def find_all_by_patterns(patterns, text, flags=re.IGNORECASE):
 # ====================================================
 
 
+def remove_supplier_logo_prefix(name):
+    """
+    ถ้ามีข้อความใด ๆ อยู่ก่อนคำว่า 'บริษัท'
+    ให้ตัดข้อความด้านหน้าทั้งหมดออก
+
+    ตัวอย่าง:
+    CHO บริษัท บิโก้ จำกัด
+    -> บริษัท บิโก้ จำกัด
+
+    KAT บริษัท ที.กรุงไทยอุตสาหกรรม จำกัด
+    -> บริษัท ที.กรุงไทยอุตสาหกรรม จำกัด
+
+    TPM บริษัท ไทยเพรส แอนด์ แมชชีนเนอรี่ โปรดักส์ จำกัด
+    -> บริษัท ไทยเพรส แอนด์ แมชชีนเนอรี่ โปรดักส์ จำกัด
+
+    บริษัท ไทย อะคิบะ จำกัด
+    -> บริษัท ไทย อะคิบะ จำกัด
+    """
+
+    if not name:
+        return ""
+
+    name = re.sub(r"\s+", " ", str(name)).strip(" ,;:-")
+
+    # หา "บริษัท" ตัวแรก
+    match = re.search(r"บริษัท", name)
+
+    if match and match.start() > 0:
+        original = name
+
+        # เก็บตั้งแต่คำว่า "บริษัท" เป็นต้นไป
+        name = name[match.start():].strip()
+
+        print(
+            f"🧹 Supplier prefix removed: "
+            f"{original} -> {name}"
+        )
+
+    return name
+
+
+
+def clean_supplier_legal_ending(name):
+    """
+    จัด SupplierName ให้เหลือเฉพาะชื่อบริษัท
+
+    - เก็บชื่อไทยจนถึง จำกัด / จำกัด (มหาชน)
+    - ตัด (สำนักงานใหญ่), (สาขา...)
+    - ตัด (HEAD OFFICE), (BRANCH...)
+    - ถ้ามีชื่ออังกฤษ ให้เก็บจนถึง legal ending
+    """
+
+    if not name:
+        return ""
+
+    name = re.sub(r"\s+", " ", str(name)).strip(" ,;:-")
+
+    # ตัดข้อมูล Branch / Head Office
+    name = re.sub(
+        r"\s*\(\s*(?:"
+        r"สำนักงานใหญ่"
+        r"|HEAD\s*OFFICE"
+        r"|สาขา(?:ที่)?\s*[^)]*"
+        r"|BRANCH(?:\s+NO\.?)?\s*[^)]*"
+        r")\s*\)",
+        "",
+        name,
+        flags=re.IGNORECASE,
+    )
+
+    name = re.sub(r"\s+", " ", name).strip(" ,;:-")
+
+    # ใช้เฉพาะกรณีที่มีชื่อบริษัทภาษาไทย
+    thai_start = re.search(r"บริษัท", name)
+
+    if not thai_start:
+        return name
+
+    # หา ending ของชื่อบริษัทไทย
+    thai_legal_pattern = re.compile(
+        r"""
+        บริษัท
+        .*?
+        จำกัด
+        (?:
+            \s*\(\s*มหาชน\s*\)
+        )?
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    )
+
+    thai_match = thai_legal_pattern.search(name, thai_start.start())
+
+    if not thai_match:
+        return name
+
+    thai_name = thai_match.group(0).strip(" ,;:-")
+    tail = name[thai_match.end():].strip(" ,;:-")
+
+    if not tail:
+        return thai_name
+
+    english_suffix = re.compile(
+        r"""
+        (?:
+            PUBLIC\s+COMPANY\s+LIMITED
+            |
+            COMPANY\s+LIMITED
+            |
+            CO\.?\s*,?\s*LTD\.?
+            |
+            LTD\.?
+            |
+            LIMITED
+        )
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    )
+
+    matches = list(english_suffix.finditer(tail))
+
+    if not matches:
+        return thai_name
+
+    candidates = []
+    segment_start = 0
+
+    for m in matches:
+        segment_end = m.end()
+
+        candidate = tail[segment_start:segment_end].strip(" ,;:-")
+
+        candidate = re.sub(
+            r"^[|/\\\-–—:;,.\s]+",
+            "",
+            candidate
+        ).strip()
+
+        if candidate:
+            candidates.append(candidate)
+
+        segment_start = segment_end
+
+    if not candidates:
+        return thai_name
+
+    def candidate_score(value):
+        alnum_len = len(re.sub(r"[^A-Za-z0-9]", "", value))
+        word_count = len(re.findall(r"[A-Za-z0-9]+", value))
+
+        return (alnum_len, word_count, len(value))
+
+    best_english = max(candidates, key=candidate_score)
+
+    return re.sub(
+        r"\s+",
+        " ",
+        f"{thai_name} {best_english}"
+    ).strip()
+
+
 def clean_supplier_name(name):
     """
     ทำความสะอาด Supplier Name แบบ Generic
-    - ตัดข้อความที่ไม่ใช่ชื่อบริษัท เช่น ISO / Certification / Website / Contact / Tax ID
-    - ลบชื่อบริษัทที่ซ้ำติดกัน
-    - รองรับทั้งภาษาไทยและอังกฤษ
+    - ตัด Supplier Logo / Prefix ที่กำหนดไว้
+    - ตัด ISO / Certification / Website / Contact / Tax ID / Address
+    - แก้ OCR กรณีคำว่า 'บริษัท' ด้านหน้าหายเป็น 'ษัท'
+    - ลบ phrase ซ้ำติดกัน
+    - เก็บชื่อไทย + อังกฤษของบริษัทไว้
     """
 
     if not name:
@@ -1031,6 +1265,13 @@ def clean_supplier_name(name):
 
     if not name:
         return ""
+
+    # 1) ลบ Logo / Prefix ก่อน
+    name = remove_supplier_logo_prefix(name)
+
+    # 2) OCR บางใบอ่านคำว่า "บริษัท" ด้านหน้าหายเป็น "ษัท"
+    # แก้เฉพาะต้น SupplierName เพื่อลดผลกระทบกับข้อความส่วนอื่น
+    name = re.sub(r"^\s*ษัท\s+", "บริษัท ", name)
 
     stop_patterns = [
         # Certification / Quality
@@ -1083,7 +1324,7 @@ def clean_supplier_name(name):
     if not name:
         return ""
 
-    # ลบ phrase ที่ซ้ำติดกันแบบ Generic
+    # 3) ลบ phrase ที่ซ้ำติดกันแบบ Generic
     words = name.split()
     result = []
     i = 0
@@ -1109,7 +1350,15 @@ def clean_supplier_name(name):
     name = " ".join(result)
     name = re.sub(r"\s+", " ", name).strip(" ,;:-")
 
+    # Final guard หลัง merge / cleanup
+    name = remove_supplier_logo_prefix(name)
+
+    # เก็บเฉพาะชื่อบริษัทที่ลงท้ายด้วยรูปแบบนิติบุคคลที่สมบูรณ์
+    # และตัด English fragment/ชื่อซ้ำที่ไม่สมบูรณ์ออก
+    name = clean_supplier_legal_ending(name)
+
     return name
+
 
 def extract_supplier_name_from_pages(invoices, ocr_cache=None):
     lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
@@ -1160,13 +1409,19 @@ def extract_supplier_name_from_pages(invoices, ocr_cache=None):
                 if i + 1 < len(lines):
                     nxt = lines[i + 1].strip().upper()
                     if nxt in ("LTD.", "LTD", "LIMITED"):
-                        eng_name = clean_supplier_name(eng_name + " " + lines[i + 1].strip())
+                        eng_name = clean_supplier_name(
+                            eng_name + " " + lines[i + 1].strip()
+                        )
                 break
 
         if thai_name and eng_name:
-            return clean_supplier_name(f"{thai_name} {eng_name}").replace(";", ",")
+            return clean_supplier_name(
+                f"{thai_name} {eng_name}"
+            ).replace(";", ",")
+
         if thai_name:
             return thai_name.replace(";", ",")
+
         if eng_name:
             return eng_name.replace(";", ",")
 
@@ -1182,26 +1437,32 @@ def extract_supplier_name_from_pages(invoices, ocr_cache=None):
 
         for pattern in SUPPLIER_NAME_PATTERNS:
             if re.search(pattern, upper, re.IGNORECASE):
+
                 supplier = clean_supplier_name(text)
 
-                # ถ้าบรรทัดก่อนหน้าเป็นชื่อย่อภาษาอังกฤษสั้น ๆ เช่น SSK
-                if i > 0:
-                    prev = lines[i - 1].strip()
-                    if (
-                        re.fullmatch(r"[A-Z0-9&.\-]{2,15}", prev, re.IGNORECASE)
-                        and prev.upper() not in supplier.upper()
-                    ):
-                        supplier = prev + " " + supplier
+                # ไม่เติมข้อความจากบรรทัดก่อนหน้าเข้ามาใน SupplierName
+                # เพราะกฎใหม่กำหนดว่า ถ้ามีข้อความก่อนคำว่า "บริษัท"
+                # ให้ตัดทิ้งทั้งหมด เพื่อกัน Logo/Prefix ทุกชนิดโดยอัตโนมัติ
 
-                # บรรทัดถัดไป: ต่อเฉพาะเมื่อดูเหมือนเป็นชื่อบริษัทอีกภาษาและไม่ซ้ำ
+                # บรรทัดถัดไป:
+                # ต่อเฉพาะเมื่อดูเหมือนเป็นชื่อบริษัทอีกภาษาและไม่ใช่ข้อความซ้ำ
                 if i + 1 < len(lines):
+
                     nxt = lines[i + 1].strip()
                     cleaned_next = clean_supplier_name(nxt)
 
-                    current_has_thai = bool(re.search(r"[\u0E00-\u0E7F]", supplier))
-                    next_has_thai = bool(re.search(r"[\u0E00-\u0E7F]", cleaned_next))
-                    current_has_english = bool(re.search(r"[A-Za-z]", supplier))
-                    next_has_english = bool(re.search(r"[A-Za-z]", cleaned_next))
+                    current_has_thai = bool(
+                        re.search(r"[\u0E00-\u0E7F]", supplier)
+                    )
+                    next_has_thai = bool(
+                        re.search(r"[\u0E00-\u0E7F]", cleaned_next)
+                    )
+                    current_has_english = bool(
+                        re.search(r"[A-Za-z]", supplier)
+                    )
+                    next_has_english = bool(
+                        re.search(r"[A-Za-z]", cleaned_next)
+                    )
 
                     next_is_company = bool(re.search(
                         r"(บริษัท|จำกัด|CO\.?\s*,?\s*LTD\.?|COMPANY\s+LIMITED|PUBLIC\s+COMPANY)",
@@ -1226,6 +1487,7 @@ def extract_supplier_name_from_pages(invoices, ocr_cache=None):
                 return clean_supplier_name(supplier).replace(";", ",")
 
     return ""
+
 
 # def extract_supplier_name_from_pages(invoices, ocr_cache):
 #     lines = get_all_lines(invoices)
@@ -1767,6 +2029,14 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
     if not Company_address:
         Company_address = extract_Company_address_from_pages(invoices, ocr_cache)
 
+    # ==========================================================
+    # Clean CompanyAddress
+    # ตัดข้อความก่อนเลขที่ตั้ง เช่น
+    # ชื่อลูกค้า 370... -> 370...
+    # HEADOFFICE:370... -> 370...
+    # ==========================================================
+    Company_address = clean_company_address_start(Company_address)
+
     supplier_from_pages = extract_supplier_name_from_pages(invoices, ocr_cache)
 
     if supplier_from_pages:
@@ -1822,6 +2092,9 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
 
     if supplier_name == "SSK Plastic Co.,Ltd.":
         supplier_name = "SSK Plastic Co.,Ltd. บริษัท เอส.เอส.เค พลาสติก จำกัด"
+
+    # Final SupplierName cleanup หลัง extraction/fallback/merge ทุกขั้นตอน
+    supplier_name = clean_supplier_name(supplier_name)
 
     invoice_date = normalize_invoice_date(
         get_field_value(invoice.fields.get("InvoiceDate"))
@@ -2092,7 +2365,9 @@ for input_pdf in pdf_list:
                 invoice_data["Address"] = extract_vendor_address_from_pages(invoices, ocr_cache)
 
             if not invoice_data.get("CompanyAddress"):
-                invoice_data["CompanyAddress"] = extract_Company_address_from_pages(invoices, ocr_cache)
+                invoice_data["CompanyAddress"] = clean_company_address_start(
+                    extract_Company_address_from_pages(invoices, ocr_cache)
+                )
 
             # ==================================================
             # Company Fix จาก CompanyAddress
