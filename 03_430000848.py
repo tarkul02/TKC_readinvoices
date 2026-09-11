@@ -295,22 +295,78 @@ def normalize_invoice_date(date_value):
 
     return text
 
-#ใช้เฉพาะตอน InvoiceDate ว่างเท่านั้น
+# ใช้หา "วันที่เอกสาร / Invoice Date" จาก OCR โดยตรง
+# จุดสำคัญ: ห้ามนำ Due Date / PO Date / Delivery Date มาเป็น InvoiceDate
 def extract_invoice_date_near_date_label(invoices, ocr_cache=None):
     lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
 
-    for line in lines:
-        upper = line.upper()
+    # จำกัดช่วงด้านบนของเอกสารก่อน เพื่อลดโอกาสไปเจอวันที่รับสินค้า/วันที่เซ็นด้านล่าง
+    search_lines = lines[:80]
 
-        # ห้ามเอาวันครบกำหนด
-        if "DUE DATE" in upper or "ครบกำหนด" in line:
+    # label ที่ไม่ใช่ Invoice Date
+    exclude_patterns = [
+        r"\bDUE\s*DATE\b",
+        r"\bPO\s*DATE\b",
+        r"\bP\.O\.\s*DATE\b",
+        r"\bDELIVERY\s*DATE\b",
+        r"\bRECEIVE(?:D|R)?\s*DATE\b",
+        r"\bPAYMENT\s*DATE\b",
+        r"\bSERVICE\s*DATE\b",
+        r"วันครบกำหนด",
+        r"กำหนดชำระ",
+        r"วันที่ส่ง",
+        r"วันที่รับ",
+    ]
+
+    # Priority 1: บรรทัดที่ระบุ Invoice Date / วันที่-Date ชัดเจน
+    preferred_patterns = [
+        r"\bINVOICE\s*DATE\b",
+        r"วันที่\s*/\s*DATE",
+        r"\bDATE\s*[:：]",
+        r"วันที่\s*[:：]",
+    ]
+
+    date_pattern = re.compile(
+        r"\b(?:"
+        r"\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}"
+        r"|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}"
+        r")\b"
+    )
+
+    def is_excluded(line):
+        return any(
+            re.search(pattern, line, re.IGNORECASE)
+            for pattern in exclude_patterns
+        )
+
+    # รอบแรก: เอาเฉพาะ label ที่ชัดเจนที่สุด
+    for line in search_lines:
+        text = re.sub(r"\s+", " ", str(line or "")).strip()
+
+        if not text or is_excluded(text):
             continue
 
-        # เอาเฉพาะบรรทัดที่เป็นวันที่เอกสาร
-        if "DATE" in upper or "วันที่" in line:
-            m = re.search(r"\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b", line)
+        if any(re.search(pattern, text, re.IGNORECASE) for pattern in preferred_patterns):
+            m = date_pattern.search(text)
             if m:
-                return normalize_invoice_date(m.group())
+                return normalize_invoice_date(m.group(0))
+
+    # รอบสอง: fallback สำหรับ template ที่เขียนเพียง DATE / วันที่
+    for line in search_lines:
+        text = re.sub(r"\s+", " ", str(line or "")).strip()
+        upper = text.upper()
+
+        if not text or is_excluded(text):
+            continue
+
+        # หลีกเลี่ยงวันที่ที่เกี่ยวกับ PO แม้ OCR จะแยกคำไม่สวย
+        if re.search(r"\bP\.?\s*O\.?\b", upper):
+            continue
+
+        if "DATE" in upper or "วันที่" in text:
+            m = date_pattern.search(text)
+            if m:
+                return normalize_invoice_date(m.group(0))
 
     return ""
 
@@ -2098,6 +2154,25 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
     # Final SupplierName cleanup หลัง extraction/fallback/merge ทุกขั้นตอน
     supplier_name = clean_supplier_name(supplier_name)
 
+    # ==========================================================
+    # Invoice Date
+    # ==========================================================
+    # Priority:
+    # 1) วันที่ที่อยู่ใกล้ label Invoice Date / วันที่-Date บนเอกสาร
+    # 2) Azure InvoiceDate
+    # 3) ServiceStartDate
+    #
+    # IMPORTANT:
+    # - ห้ามใช้ DueDate เป็น InvoiceDate
+    # - ถ้า Azure อ่าน InvoiceDate ไปตรงกับ DueDate แต่ OCR พบวันที่เอกสารจริง
+    #   ให้ใช้วันที่จาก OCR label แทน
+    #
+    # ตัวอย่าง:
+    #   วันที่/Date     = 20/06/2026
+    #   DUE DATE       = 20/07/2026
+    #   ผลที่ต้องได้   = 20/06/2026
+    # ==========================================================
+
     invoice_date = normalize_invoice_date(
         get_field_value(invoice.fields.get("InvoiceDate"))
     )
@@ -2110,21 +2185,78 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
         get_field_value(invoice.fields.get("DueDate"))
     )
 
+    # อ่านวันที่จาก label บนหน้าเอกสารโดยตรง
+    label_invoice_date = extract_invoice_date_near_date_label(
+        invoices,
+        ocr_cache
+    )
+
     invoice_dt = parse_date_safe(invoice_date)
     service_dt = parse_date_safe(service_start)
     due_dt = parse_date_safe(due_date)
+    label_dt = parse_date_safe(label_invoice_date)
     current_year = datetime.now().year
 
     final_invoice_date = invoice_date
 
-    if invoice_dt and invoice_dt.year != current_year:
-        candidates = [d for d in [service_dt, due_dt] if d is not None]
-        if candidates:
-            final_invoice_date = min(candidates).strftime("%d/%m/%Y")
-    elif not invoice_dt:
-        candidates = [d for d in [service_dt, due_dt] if d is not None]
-        if candidates:
-            final_invoice_date = min(candidates).strftime("%d/%m/%Y")
+    # ----------------------------------------------------------
+    # 1) ถ้า OCR พบ Invoice Date ที่ label ชัดเจน ให้ใช้แก้กรณี Azure map ผิด
+    # ----------------------------------------------------------
+    if label_dt:
+
+        # Azure ไม่มี InvoiceDate
+        if not invoice_dt:
+            final_invoice_date = label_dt.strftime("%d/%m/%Y")
+
+        # Azure เอา DueDate มาใส่เป็น InvoiceDate
+        elif (
+            due_dt
+            and invoice_dt.date() == due_dt.date()
+            and label_dt.date() != due_dt.date()
+        ):
+            print(
+                f"📅 InvoiceDate corrected from DueDate: "
+                f"{invoice_date} -> {label_invoice_date}"
+            )
+            final_invoice_date = label_dt.strftime("%d/%m/%Y")
+
+        # Azure อ่านปีผิด แต่วันที่ที่ label อยู่ในปีปัจจุบัน
+        elif (
+            invoice_dt.year != current_year
+            and label_dt.year == current_year
+        ):
+            print(
+                f"📅 InvoiceDate corrected from label: "
+                f"{invoice_date} -> {label_invoice_date}"
+            )
+            final_invoice_date = label_dt.strftime("%d/%m/%Y")
+
+    # ----------------------------------------------------------
+    # 2) ถ้ายังไม่มี InvoiceDate จริง ๆ ใช้ ServiceStartDate เป็น fallback
+    #    แต่ไม่ใช้ DueDate
+    # ----------------------------------------------------------
+    final_dt = parse_date_safe(final_invoice_date)
+
+    if not final_dt and service_dt:
+        final_invoice_date = service_dt.strftime("%d/%m/%Y")
+
+    # Safety guard:
+    # ถ้าค่าสุดท้ายยังเท่ากับ DueDate และมีวันที่จาก label ที่ต่างกัน
+    # ให้ยืนยันใช้วันที่จาก label
+    final_dt = parse_date_safe(final_invoice_date)
+
+    if (
+        final_dt
+        and due_dt
+        and label_dt
+        and final_dt.date() == due_dt.date()
+        and label_dt.date() != due_dt.date()
+    ):
+        print(
+            f"📅 Safety Date Fix: "
+            f"{final_invoice_date} -> {label_invoice_date}"
+        )
+        final_invoice_date = label_dt.strftime("%d/%m/%Y")
 
     tax_invoice_no = str(
         get_field_value(invoice.fields.get("InvoiceId")) or ""
@@ -2179,22 +2311,24 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
 def build_excel_row(invoice):
 
     return {
+
+
         "TaxInvoiceNo": invoice.get("TaxInvoiceNo", ""),
         "InvoiceDate": invoice.get("InvoiceDate", ""),
         "SupplierName": invoice.get("SupplierName", ""),
+        "VendorBranch": invoice.get("VendorBranch", ""),  
+        "VendorTaxId": invoice.get("VendorTaxId", ""), 
         "Address": invoice.get("Address", ""),
-        "CompanyAddress": invoice.get("CompanyAddress", ""),
-        "Assignment": invoice.get("Assignment", ""),
-        "VendorTaxId": invoice.get("VendorTaxId", ""),
-        "VendorBranch": invoice.get("VendorBranch", ""),
         "TotalAmount": invoice.get("TotalAmount", ""),
         "VATAmount": invoice.get("VATAmount", ""),
         "AmountIncVat": invoice.get("AmountIncVat", ""),
-        "CompanyName": invoice.get("CompanyName", ""),
-        "CompanyTaxID": invoice.get("CompanyTaxID", ""),
-        "CompanyBranch": invoice.get("CompanyBranch", ""),
         "PurchaseOrderNo": invoice.get("PurchaseOrderNo", ""),
         "TaxRemark": invoice.get("TaxRemark", ""),
+        "CustomerName": invoice.get("CompanyName", ""),
+        "CustomerTaxID": invoice.get("CompanyTaxID", ""),
+        "CustomerBranch": invoice.get("CompanyBranch", ""),
+        "CustomerAddress": invoice.get("CompanyAddress", ""),
+        "Assignment": invoice.get("Assignment", ""),
         "Emessage": invoice.get("Emessage", "")
     }
 
@@ -2341,7 +2475,11 @@ for input_pdf in pdf_list:
             print("⏭️ พบคำว่า 'Good Receipt' → ข้ามหน้านี้ทันที")
             continue
 
-        invoice_date_ocr = extract_oldest_date_from_text(invoices, ocr_cache)
+        # OCR fallback: ให้วันที่ใกล้ label Invoice Date มาก่อน
+        # และค่อยใช้ oldest date เมื่อหา label ไม่เจอ
+        invoice_date_ocr = extract_invoice_date_near_date_label(invoices, ocr_cache)
+        if not invoice_date_ocr:
+            invoice_date_ocr = extract_oldest_date_from_text(invoices, ocr_cache)
 
         for idx, invoice in enumerate(invoices.documents):
 
@@ -2651,10 +2789,10 @@ EXCEL_COLUMNS = [
     "TotalAmount",
     "VATAmount",
     "AmountIncVat",
-    "CompanyAddress",
-    "CompanyName",
-    "CompanyTaxID",
-    "CompanyBranch",
+    "CustomerName",
+    "CustomerTaxID",
+    "CustomerBranch",
+    "CustomerAddress",
     "PurchaseOrderNo",
     "TaxRemark",
     "Emessage",
