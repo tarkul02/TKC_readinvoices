@@ -5,6 +5,8 @@ import re
 import json
 import time
 import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill, Font
 from PyPDF2 import PdfReader, PdfWriter
 from pdf2image import convert_from_path
 from PIL import Image
@@ -2704,5 +2706,118 @@ df = pd.DataFrame(excel_rows)
 df = df.reindex(columns=EXCEL_COLUMNS)
 
 df.to_excel(output_excel, index=False)
+
+# ==========================================================
+# 🎨 Highlight Excel cells that have problems
+# ==========================================================
+def highlight_excel_errors(excel_path):
+    """
+    อ่าน Emessage ของแต่ละแถว แล้วทำสีช่องที่เกี่ยวข้องกับปัญหา
+
+    - Emessage ที่มีข้อความ -> ทำสี
+    - Required field ที่เป็น "<Field> is empty" -> ทำสี Field นั้น
+    - Amount error -> ทำสี TotalAmount, VATAmount, AmountIncVat
+    - Company address mismatch -> ทำสี CompanyAddress, CompanyBranch
+    - PO/Company branch mismatch -> ทำสี PurchaseOrderNo, CompanyBranch
+    - เอกสารสำเนา -> Emessage สีเหลือง (warning)
+    """
+
+    wb = load_workbook(excel_path)
+    ws = wb.active
+
+    error_fill = PatternFill(fill_type="solid", fgColor="FFEB9C")
+    error_font = Font(color="000000")
+
+    warning_fill = PatternFill(fill_type="solid", fgColor="FFEB9C")
+    warning_font = Font(color="000000")
+
+    column_map = {}
+    for cell in ws[1]:
+        if cell.value is not None:
+            column_map[str(cell.value).strip()] = cell.column
+
+    emessage_col = column_map.get("Emessage")
+    if not emessage_col:
+        print("⚠️ ไม่พบ Column Emessage → ข้ามการทำสี")
+        wb.save(excel_path)
+        return
+
+    def mark_cell(row_number, field_name, warning=False):
+        col_number = column_map.get(field_name)
+        if not col_number:
+            return
+
+        cell = ws.cell(row=row_number, column=col_number)
+        if warning:
+            cell.fill = warning_fill
+            cell.font = warning_font
+        else:
+            cell.fill = error_fill
+            cell.font = error_font
+
+    error_field_map = {
+        "Company address does not match": [
+            "CompanyAddress",
+            "CompanyBranch",
+        ],
+        "PO does not match Company branch": [
+            "PurchaseOrderNo",
+            "CompanyBranch",
+        ],
+        "Duplicate Amount Found": [
+            "TotalAmount",
+            "VATAmount",
+            "AmountIncVat",
+        ],
+        "Amount format invalid": [
+            "TotalAmount",
+            "VATAmount",
+            "AmountIncVat",
+        ],
+        "VATAmount format invalid": [
+            "TotalAmount",
+            "VATAmount",
+            "AmountIncVat",
+        ],
+        "กรุณาเช็ค Amount ทั้ง 3 ช่อง": [
+            "TotalAmount",
+            "VATAmount",
+            "AmountIncVat",
+        ],
+    }
+
+    for row_number in range(2, ws.max_row + 1):
+        emessage_cell = ws.cell(row=row_number, column=emessage_col)
+        emessage = str(emessage_cell.value or "").strip()
+
+        if not emessage:
+            continue
+
+        emessage_lower = emessage.casefold()
+
+        copy_warning_only = (
+            "เอกสารใบนี้เป็นสำเนา" in emessage
+            and " | " not in emessage
+        )
+
+        mark_cell(row_number, "Emessage", warning=copy_warning_only)
+
+        # Required Field Error เช่น VendorTaxId is empty
+        for field in REQUIRED_FIELDS:
+            required_error = f"{field} is empty".casefold()
+            if required_error in emessage_lower:
+                mark_cell(row_number, field)
+
+        # Error เฉพาะประเภท
+        for error_keyword, fields in error_field_map.items():
+            if error_keyword.casefold() in emessage_lower:
+                for field in fields:
+                    mark_cell(row_number, field)
+
+    wb.save(excel_path)
+    print("🎨 Highlight Error Cells completed")
+
+
+highlight_excel_errors(output_excel)
 
 print(f"\n✅ Done. All invoices saved to {output_excel}")
