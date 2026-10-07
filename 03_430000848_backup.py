@@ -36,7 +36,7 @@ branch_email = sys.argv[2]
 # 📁 PATH
 # ====================================================
 
-paths = get_paths(today_str, branch_email, "Process7")
+paths = get_paths(today_str, branch_email, "Process3")
 
 input_folder = paths["input_folder"]
 temp_folder = paths["temp_folder"]
@@ -105,7 +105,25 @@ DEFAULT_PATTERN_CONFIG = {
         "SELLER TAX ID", "COMPANY REGISTRATION", "TAX ID", "TIN", "ชื่อผู้ซื้อ" 
     ],
     "supplier_name_patterns": [
-        {"name": "Company Name", "regex": r"(CO\.?\s*,?\s*LTD\.?|COMPANY\s+LIMITED|PUBLIC\s+COMPANY\s+LIMITED|บริษัท|จำกัด)"}
+        {
+            "name": "Company Name",
+            "regex": r"(CO\.?\s*,?\s*LTD\.?|COMPANY\s+LIMITED|PUBLIC\s+COMPANY\s+LIMITED|บริษัท|จำกัด)"
+        }
+    ],
+
+    "supplier_remove_prefix_patterns": [
+        {
+            "name": "Generic Logo Before Thai Company",
+            "regex": r"^[A-Z0-9][A-Z0-9&._\-/]{1,14}\s+(?=บริษัท\b)"
+        },
+        {
+            "name": "CHO Logo",
+            "regex": r"^CHO\s+"
+        },
+        {
+            "name": "IRC Logo",
+            "regex": r"^IRC\s+"
+        }
     ]
 }
 
@@ -156,6 +174,17 @@ EXCLUDE_TAX_IDS = set(pattern_config.get("exclude_tax_ids", DEFAULT_PATTERN_CONF
 STOP_KEYWORDS = pattern_config.get("stop_keywords", DEFAULT_PATTERN_CONFIG["stop_keywords"])
 SUPPLIER_SKIP_KEYWORDS = pattern_config.get("supplier_skip_keywords", DEFAULT_PATTERN_CONFIG["supplier_skip_keywords"])
 SUPPLIER_NAME_PATTERNS = [p["regex"] for p in pattern_config.get("supplier_name_patterns", DEFAULT_PATTERN_CONFIG["supplier_name_patterns"])]
+SUPPLIER_REMOVE_PREFIX_PATTERNS = [
+    p["regex"]
+    for p in pattern_config.get(
+        "supplier_remove_prefix_patterns",
+        DEFAULT_PATTERN_CONFIG.get(
+            "supplier_remove_prefix_patterns",
+            []
+        )
+    )
+    if isinstance(p, dict) and p.get("regex")
+]
 
 # ====================================================
 # 📌 PO Branch Rules
@@ -360,6 +389,43 @@ def extract_oldest_date_from_text(invoices, ocr_cache=None):
 
     return ""
 
+def remove_supplier_logo_prefix(name):
+    """
+    ลบ Logo / Prefix ที่ Azure OCR ติดมากับ SupplierName
+
+    ตัวอย่าง:
+    CHO บริษัท บิโก้ ปราจีนบุรี (ไทยแลนด์) จำกัด
+    -> บริษัท บิโก้ ปราจีนบุรี (ไทยแลนด์) จำกัด
+
+    IRC บริษัท อีโนเว รับเบอร์ (ประเทศไทย) จำกัด (มหาชน)
+    -> บริษัท อีโนเว รับเบอร์ (ประเทศไทย) จำกัด (มหาชน)
+    """
+
+    if not name:
+        return ""
+
+    name = str(name)
+    name = re.sub(r"\s+", " ", name).strip()
+
+    for pattern in SUPPLIER_REMOVE_PREFIX_PATTERNS:
+
+        new_name = re.sub(
+            pattern,
+            "",
+            name,
+            count=1,
+            flags=re.IGNORECASE
+        ).strip()
+
+        if new_name != name:
+            print(
+                f"🧹 Supplier Logo removed: "
+                f"{name} -> {new_name}"
+            )
+
+            name = new_name
+
+    return name
 
 # ====================================================
 # 📌 Azure / PDF Utils
@@ -1029,6 +1095,11 @@ def clean_supplier_name(name):
     name = str(name).replace("\n", " ")
     name = re.sub(r"\s+", " ", name).strip(" ,;:-")
 
+    # ==================================================
+    # Remove Supplier Logo / Prefix
+    # ==================================================
+    name = remove_supplier_logo_prefix(name)
+
     if not name:
         return ""
 
@@ -1184,11 +1255,21 @@ def extract_supplier_name_from_pages(invoices, ocr_cache=None):
             if re.search(pattern, upper, re.IGNORECASE):
                 supplier = clean_supplier_name(text)
 
-                # ถ้าบรรทัดก่อนหน้าเป็นชื่อย่อภาษาอังกฤษสั้น ๆ เช่น SSK
+                # ถ้าบรรทัดก่อนหน้าเป็นชื่อย่อภาษาอังกฤษ
                 if i > 0:
+
                     prev = lines[i - 1].strip()
+
                     if (
-                        re.fullmatch(r"[A-Z0-9&.\-]{2,15}", prev, re.IGNORECASE)
+                        re.fullmatch(
+                            r"[A-Z0-9&.\-]{2,15}",
+                            prev,
+                            re.IGNORECASE
+                        )
+
+                        # NEW: ถ้าเป็น Logo ไม่ต้องเอามาต่อ
+                        and not is_supplier_logo_prefix(prev)
+
                         and prev.upper() not in supplier.upper()
                     ):
                         supplier = prev + " " + supplier
@@ -1226,6 +1307,28 @@ def extract_supplier_name_from_pages(invoices, ocr_cache=None):
                 return clean_supplier_name(supplier).replace(";", ",")
 
     return ""
+
+def is_supplier_logo_prefix(text):
+
+    text = str(text or "").strip()
+
+    if not text:
+        return False
+
+    for pattern in SUPPLIER_REMOVE_PREFIX_PATTERNS:
+
+        # เติมข้อความจำลอง "บริษัท" เพื่อให้
+        # generic pattern ที่ใช้ (?=บริษัท) ตรวจได้ด้วย
+        test_text = f"{text} บริษัท"
+
+        if re.search(
+            pattern,
+            test_text,
+            re.IGNORECASE
+        ):
+            return True
+
+    return False
 
 # def extract_supplier_name_from_pages(invoices, ocr_cache):
 #     lines = get_all_lines(invoices)
@@ -1846,6 +1949,8 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
         "TotalAmount": normalize_number(total_amount),
         "VATAmount": normalize_number(vat_amount),
         "AmountIncVat": normalize_number(amount_inc_vat),
+        "PurchaseOrderNo": clean_po_from_field(purchase_order_no1),
+        "TaxRemark": "",
         "Emessage": "",
     }
 
@@ -1871,6 +1976,8 @@ def build_excel_row(invoice):
         "CompanyName": invoice.get("CompanyName", ""),
         "CompanyTaxID": invoice.get("CompanyTaxID", ""),
         "CompanyBranch": invoice.get("CompanyBranch", ""),
+        "PurchaseOrderNo": invoice.get("PurchaseOrderNo", ""),
+        "TaxRemark": invoice.get("TaxRemark", ""),
         "Emessage": invoice.get("Emessage", "")
     }
 
@@ -1886,9 +1993,23 @@ def merge_invoice_row(existing, new):
         "VendorBranch",
         "Address",
         "CompanyAddress",
+        "TaxRemark",
     ]:
         if (not existing.get(field)) and new.get(field):
             existing[field] = new.get(field)
+
+    vals = []
+    for v in [
+        existing.get("PurchaseOrderNo", ""),
+        new.get("PurchaseOrderNo", "")
+    ]:
+        if v:
+            vals.extend(
+                [x.strip() for x in str(v).split(",") if x.strip()]
+            )
+
+    if vals:
+        existing["PurchaseOrderNo"] = ",".join(dict.fromkeys(vals))
 
     # TotalAmount และ AmountIncVat
     for field in ["TotalAmount", "AmountIncVat"]:
@@ -2240,6 +2361,28 @@ for input_pdf in pdf_list:
 
                         invoice_data["TaxInvoiceNo"] = fixed_invoice_no
 
+            # ==================================================
+            # PO Validation by Company Branch
+            # 1) หา PO ของ branch ที่ส่งมาตอน Run ก่อน
+            # 2) ถ้าไม่เจอ -> หาอีก branch
+            # 3) ถ้าเจออีก branch -> เก็บ PO และเพิ่ม Emessage
+            # ==================================================
+            po_from_ocr, po_branch_mismatch = extract_po_from_text_and_tables(
+                invoices,
+                branch_email,
+                invoice_data.get("PurchaseOrderNo", ""),
+                ocr_cache
+            )
+
+            if po_from_ocr:
+                invoice_data["PurchaseOrderNo"] = po_from_ocr
+
+            if po_branch_mismatch:
+                invoice_data["Emessage"] = append_msg(
+                    invoice_data.get("Emessage", ""),
+                    "PO does not match Company branch"
+                )
+
             tax_invoice_no = (invoice_data.get("TaxInvoiceNo") or "").strip()
             if re.match(r"^(?:PO)?(?:410|140)\d{7}$", tax_invoice_no, re.IGNORECASE):
                 invoice_data["TaxInvoiceNo"] = ""
@@ -2251,6 +2394,9 @@ for input_pdf in pdf_list:
             #Custom Nifco
             if "NIFCO" in full_text or "นิฟโก้" in full_text:
                 invoice_data["TaxInvoiceNo"] = "OTH" + str(invoice_data.get("TaxInvoiceNo", ""))
+
+            taxRemark = extract_tax_remark(invoices, ocr_cache)
+            invoice_data["TaxRemark"] = taxRemark
 
             invoice_data["InvoiceDate"] = normalize_invoice_date(invoice_data.get("InvoiceDate"))
             invoice_data["PostingDate"] = normalize_invoice_date(invoice_data.get("PostingDate"))
@@ -2302,6 +2448,8 @@ EXCEL_COLUMNS = [
     "CompanyName",
     "CompanyTaxID",
     "CompanyBranch",
+    "PurchaseOrderNo",
+    "TaxRemark",
     "Emessage",
 ]
 REQUIRED_FIELDS = [
@@ -2312,6 +2460,7 @@ REQUIRED_FIELDS = [
     "SupplierName",
     "VendorTaxId",
     "VendorBranch",
+    "PurchaseOrderNo",
 ]
 
 for row in all_data:

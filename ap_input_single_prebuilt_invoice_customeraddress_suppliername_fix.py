@@ -36,7 +36,7 @@ branch_email = sys.argv[2]
 # 📁 PATH
 # ====================================================
 
-paths = get_paths(today_str, branch_email, "Process7")
+paths = get_paths(today_str, branch_email, "Process3")
 
 input_folder = paths["input_folder"]
 temp_folder = paths["temp_folder"]
@@ -548,6 +548,77 @@ def get_address_value(field):
 
     return ""
 
+
+def clean_company_address_start(address):
+    """
+    Clean CompanyAddress:
+    1. ตัดข้อความขยะก่อนเลขที่บ้าน
+    2. ลบ OCR คำว่า Address ที่ติดหน้า Samutprakarn/Samutprakan
+    3. ตัดข้อความหลัง postcode 10570 หรือ 25140
+    4. ถ้าหาเลขที่บ้านไม่ได้ ให้เก็บข้อความเดิมไว้
+    """
+
+    if not address:
+        return ""
+
+    address = re.sub(r"\s+", " ", str(address)).strip(" ,;:-")
+
+    # ----------------------------------------------------------
+    # ลบ OCR noise:
+    # AddressSamutprakarn -> Samutprakarn
+    # Address Samutprakarn -> Samutprakarn
+    # ----------------------------------------------------------
+    address = re.sub(
+        r"(?i)\bAddress\s*(?=Samut\s*prak(?:arn|an))",
+        "",
+        address
+    )
+
+    address = re.sub(r"\s+", " ", address).strip(" ,;:-")
+
+    # ----------------------------------------------------------
+    # หาเลขที่บ้าน
+    # เช่น 370 / 555 / 99/9 / 123/456
+    # ----------------------------------------------------------
+    matches = list(
+        re.finditer(
+            r"\b\d{1,4}(?:/\d{1,5})?\b",
+            address
+        )
+    )
+
+    cleaned = address
+
+    for match in matches:
+        value = match.group(0)
+
+        # ป้องกันไม่ให้ postcode ถูกมองเป็นเลขที่บ้าน
+        if value in ("10570", "25140"):
+            continue
+
+        cleaned = address[match.start():]
+        break
+
+    # ----------------------------------------------------------
+    # ตัดทุกอย่างหลัง postcode
+    # รองรับ:
+    # 10570
+    # , 10570,
+    # 25140 THAILAND
+    # ----------------------------------------------------------
+    postcode_match = re.search(
+        r"\b(?:10570|25140)\b",
+        cleaned
+    )
+
+    if postcode_match:
+        cleaned = cleaned[:postcode_match.end()]
+
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = cleaned.strip(" ,;:-.")
+
+    return cleaned
+
 def validate_Company_branch(Company_address, input_branch):
     """
     ตรวจสอบ Company Branch จากที่อยู่ เทียบกับค่าที่ส่งเข้ามาตอนรันโปรแกรม
@@ -1015,12 +1086,175 @@ def find_all_by_patterns(patterns, text, flags=re.IGNORECASE):
 # ====================================================
 
 
+def remove_supplier_logo_prefix(name):
+    """
+    ถ้ามีข้อความใด ๆ อยู่ก่อนคำว่า 'บริษัท'
+    ให้ตัดข้อความด้านหน้าทั้งหมดออก
+
+    ตัวอย่าง:
+    CHO บริษัท บิโก้ จำกัด
+    -> บริษัท บิโก้ จำกัด
+
+    KAT บริษัท ที.กรุงไทยอุตสาหกรรม จำกัด
+    -> บริษัท ที.กรุงไทยอุตสาหกรรม จำกัด
+
+    TPM บริษัท ไทยเพรส แอนด์ แมชชีนเนอรี่ โปรดักส์ จำกัด
+    -> บริษัท ไทยเพรส แอนด์ แมชชีนเนอรี่ โปรดักส์ จำกัด
+
+    บริษัท ไทย อะคิบะ จำกัด
+    -> บริษัท ไทย อะคิบะ จำกัด
+    """
+
+    if not name:
+        return ""
+
+    name = re.sub(r"\s+", " ", str(name)).strip(" ,;:-")
+
+    # หา "บริษัท" ตัวแรก
+    match = re.search(r"บริษัท", name)
+
+    if match and match.start() > 0:
+        original = name
+
+        # เก็บตั้งแต่คำว่า "บริษัท" เป็นต้นไป
+        name = name[match.start():].strip()
+
+        print(
+            f"🧹 Supplier prefix removed: "
+            f"{original} -> {name}"
+        )
+
+    return name
+
+
+
+def clean_supplier_legal_ending(name):
+    """
+    จัด SupplierName ให้เหลือเฉพาะชื่อบริษัท
+
+    - เก็บชื่อไทยจนถึง จำกัด / จำกัด (มหาชน)
+    - ตัด (สำนักงานใหญ่), (สาขา...)
+    - ตัด (HEAD OFFICE), (BRANCH...)
+    - ถ้ามีชื่ออังกฤษ ให้เก็บจนถึง legal ending
+    """
+
+    if not name:
+        return ""
+
+    name = re.sub(r"\s+", " ", str(name)).strip(" ,;:-")
+
+    # ตัดข้อมูล Branch / Head Office
+    name = re.sub(
+        r"\s*\(\s*(?:"
+        r"สำนักงานใหญ่"
+        r"|HEAD\s*OFFICE"
+        r"|สาขา(?:ที่)?\s*[^)]*"
+        r"|BRANCH(?:\s+NO\.?)?\s*[^)]*"
+        r")\s*\)",
+        "",
+        name,
+        flags=re.IGNORECASE,
+    )
+
+    name = re.sub(r"\s+", " ", name).strip(" ,;:-")
+
+    # ใช้เฉพาะกรณีที่มีชื่อบริษัทภาษาไทย
+    thai_start = re.search(r"บริษัท", name)
+
+    if not thai_start:
+        return name
+
+    # หา ending ของชื่อบริษัทไทย
+    thai_legal_pattern = re.compile(
+        r"""
+        บริษัท
+        .*?
+        จำกัด
+        (?:
+            \s*\(\s*มหาชน\s*\)
+        )?
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    )
+
+    thai_match = thai_legal_pattern.search(name, thai_start.start())
+
+    if not thai_match:
+        return name
+
+    thai_name = thai_match.group(0).strip(" ,;:-")
+    tail = name[thai_match.end():].strip(" ,;:-")
+
+    if not tail:
+        return thai_name
+
+    english_suffix = re.compile(
+        r"""
+        (?:
+            PUBLIC\s+COMPANY\s+LIMITED
+            |
+            COMPANY\s+LIMITED
+            |
+            CO\.?\s*,?\s*LTD\.?
+            |
+            LTD\.?
+            |
+            LIMITED
+        )
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    )
+
+    matches = list(english_suffix.finditer(tail))
+
+    if not matches:
+        return thai_name
+
+    candidates = []
+    segment_start = 0
+
+    for m in matches:
+        segment_end = m.end()
+
+        candidate = tail[segment_start:segment_end].strip(" ,;:-")
+
+        candidate = re.sub(
+            r"^[|/\\\-–—:;,.\s]+",
+            "",
+            candidate
+        ).strip()
+
+        if candidate:
+            candidates.append(candidate)
+
+        segment_start = segment_end
+
+    if not candidates:
+        return thai_name
+
+    def candidate_score(value):
+        alnum_len = len(re.sub(r"[^A-Za-z0-9]", "", value))
+        word_count = len(re.findall(r"[A-Za-z0-9]+", value))
+
+        return (alnum_len, word_count, len(value))
+
+    best_english = max(candidates, key=candidate_score)
+
+    return re.sub(
+        r"\s+",
+        " ",
+        f"{thai_name} {best_english}"
+    ).strip()
+
+
 def clean_supplier_name(name):
     """
     ทำความสะอาด Supplier Name แบบ Generic
-    - ตัดข้อความที่ไม่ใช่ชื่อบริษัท เช่น ISO / Certification / Website / Contact / Tax ID
-    - ลบชื่อบริษัทที่ซ้ำติดกัน
-    - รองรับทั้งภาษาไทยและอังกฤษ
+    - ตัด Supplier Logo / Prefix ที่กำหนดไว้
+    - ตัด ISO / Certification / Website / Contact / Tax ID / Address
+    - แก้ OCR กรณีคำว่า 'บริษัท' ด้านหน้าหายเป็น 'ษัท'
+    - ลบ phrase ซ้ำติดกัน
+    - เก็บชื่อไทย + อังกฤษของบริษัทไว้
     """
 
     if not name:
@@ -1031,6 +1265,13 @@ def clean_supplier_name(name):
 
     if not name:
         return ""
+
+    # 1) ลบ Logo / Prefix ก่อน
+    name = remove_supplier_logo_prefix(name)
+
+    # 2) OCR บางใบอ่านคำว่า "บริษัท" ด้านหน้าหายเป็น "ษัท"
+    # แก้เฉพาะต้น SupplierName เพื่อลดผลกระทบกับข้อความส่วนอื่น
+    name = re.sub(r"^\s*ษัท\s+", "บริษัท ", name)
 
     stop_patterns = [
         # Certification / Quality
@@ -1083,7 +1324,7 @@ def clean_supplier_name(name):
     if not name:
         return ""
 
-    # ลบ phrase ที่ซ้ำติดกันแบบ Generic
+    # 3) ลบ phrase ที่ซ้ำติดกันแบบ Generic
     words = name.split()
     result = []
     i = 0
@@ -1109,7 +1350,15 @@ def clean_supplier_name(name):
     name = " ".join(result)
     name = re.sub(r"\s+", " ", name).strip(" ,;:-")
 
+    # Final guard หลัง merge / cleanup
+    name = remove_supplier_logo_prefix(name)
+
+    # เก็บเฉพาะชื่อบริษัทที่ลงท้ายด้วยรูปแบบนิติบุคคลที่สมบูรณ์
+    # และตัด English fragment/ชื่อซ้ำที่ไม่สมบูรณ์ออก
+    name = clean_supplier_legal_ending(name)
+
     return name
+
 
 def extract_supplier_name_from_pages(invoices, ocr_cache=None):
     lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
@@ -1160,13 +1409,19 @@ def extract_supplier_name_from_pages(invoices, ocr_cache=None):
                 if i + 1 < len(lines):
                     nxt = lines[i + 1].strip().upper()
                     if nxt in ("LTD.", "LTD", "LIMITED"):
-                        eng_name = clean_supplier_name(eng_name + " " + lines[i + 1].strip())
+                        eng_name = clean_supplier_name(
+                            eng_name + " " + lines[i + 1].strip()
+                        )
                 break
 
         if thai_name and eng_name:
-            return clean_supplier_name(f"{thai_name} {eng_name}").replace(";", ",")
+            return clean_supplier_name(
+                f"{thai_name} {eng_name}"
+            ).replace(";", ",")
+
         if thai_name:
             return thai_name.replace(";", ",")
+
         if eng_name:
             return eng_name.replace(";", ",")
 
@@ -1182,26 +1437,32 @@ def extract_supplier_name_from_pages(invoices, ocr_cache=None):
 
         for pattern in SUPPLIER_NAME_PATTERNS:
             if re.search(pattern, upper, re.IGNORECASE):
+
                 supplier = clean_supplier_name(text)
 
-                # ถ้าบรรทัดก่อนหน้าเป็นชื่อย่อภาษาอังกฤษสั้น ๆ เช่น SSK
-                if i > 0:
-                    prev = lines[i - 1].strip()
-                    if (
-                        re.fullmatch(r"[A-Z0-9&.\-]{2,15}", prev, re.IGNORECASE)
-                        and prev.upper() not in supplier.upper()
-                    ):
-                        supplier = prev + " " + supplier
+                # ไม่เติมข้อความจากบรรทัดก่อนหน้าเข้ามาใน SupplierName
+                # เพราะกฎใหม่กำหนดว่า ถ้ามีข้อความก่อนคำว่า "บริษัท"
+                # ให้ตัดทิ้งทั้งหมด เพื่อกัน Logo/Prefix ทุกชนิดโดยอัตโนมัติ
 
-                # บรรทัดถัดไป: ต่อเฉพาะเมื่อดูเหมือนเป็นชื่อบริษัทอีกภาษาและไม่ซ้ำ
+                # บรรทัดถัดไป:
+                # ต่อเฉพาะเมื่อดูเหมือนเป็นชื่อบริษัทอีกภาษาและไม่ใช่ข้อความซ้ำ
                 if i + 1 < len(lines):
+
                     nxt = lines[i + 1].strip()
                     cleaned_next = clean_supplier_name(nxt)
 
-                    current_has_thai = bool(re.search(r"[\u0E00-\u0E7F]", supplier))
-                    next_has_thai = bool(re.search(r"[\u0E00-\u0E7F]", cleaned_next))
-                    current_has_english = bool(re.search(r"[A-Za-z]", supplier))
-                    next_has_english = bool(re.search(r"[A-Za-z]", cleaned_next))
+                    current_has_thai = bool(
+                        re.search(r"[\u0E00-\u0E7F]", supplier)
+                    )
+                    next_has_thai = bool(
+                        re.search(r"[\u0E00-\u0E7F]", cleaned_next)
+                    )
+                    current_has_english = bool(
+                        re.search(r"[A-Za-z]", supplier)
+                    )
+                    next_has_english = bool(
+                        re.search(r"[A-Za-z]", cleaned_next)
+                    )
 
                     next_is_company = bool(re.search(
                         r"(บริษัท|จำกัด|CO\.?\s*,?\s*LTD\.?|COMPANY\s+LIMITED|PUBLIC\s+COMPANY)",
@@ -1226,6 +1487,7 @@ def extract_supplier_name_from_pages(invoices, ocr_cache=None):
                 return clean_supplier_name(supplier).replace(";", ",")
 
     return ""
+
 
 # def extract_supplier_name_from_pages(invoices, ocr_cache):
 #     lines = get_all_lines(invoices)
@@ -1255,91 +1517,123 @@ def extract_supplier_name_from_pages(invoices, ocr_cache=None):
 #     return ""
 
 def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None):
+    """
+    SINGLE-MODEL VERSION
+    ใช้ผลจาก prebuilt-invoice เพียงตัวเดียว ทั้ง OCR text, line position/polygon
+    และ selection marks (ถ้ามีใน analyze result) โดยไม่ต้องยิง prebuilt-layout เพิ่ม
+
+    layout_result ถูกเก็บไว้ใน signature เพื่อไม่ให้ส่วนอื่นที่อาจเรียก function นี้พัง
+    แต่ใน flow ใหม่ไม่จำเป็นต้องส่งค่าเข้ามา
+    """
     lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
     full_text = ocr_cache["full_text"] if ocr_cache is not None else "\n".join(lines)
 
+    # ใช้ pages จาก prebuilt-invoice เป็นแหล่งข้อมูลตำแหน่งหลัก
+    pages = getattr(invoices, "pages", None) or []
+
     # SPECIAL CASE: T.KRUNGTHAI INDUSTRIES
     # บริษัทนี้ในหัวเอกสารมีรายการสาขา 00001/00002/00003 หลายบรรทัด
-    # ห้ามดึงจากรายการสาขาด้านซ้าย ให้ดึงจากช่อง "สาขาที่" ข้างเลขที่ใบกำกับภาษีด้านขวาเท่านั้น
+    # เลือกช่อง "สาขาที่" ด้านขวาของหน้า หรือบรรทัดเดียวกับ เลขที่/No.
     if (
         "T.KRUNGTHAI INDUSTRIES" in full_text.upper()
         or "ที.กรุงไทยอุตสาหกรรม" in full_text
         or "กรุงไทยอุตสาหกรรม" in full_text
     ):
         branch_value = ""
-        # 0.1) อ่านจาก layout โดยดูตำแหน่งด้านขวาของหน้า หรือบรรทัดที่มีเลขที่ใบกำกับภาษี
-        if layout_result:
-            for page in layout_result.pages:
-                page_width = getattr(page, "width", 0) or 0
 
-                for line in page.lines:
-                    text = line.content.strip() if line.content else ""
-                    if not text:
-                        continue
+        # 0.1) ใช้ line polygon จาก prebuilt-invoice โดยตรง
+        for page in pages:
+            page_width = getattr(page, "width", 0) or 0
 
-                    m = re.search(r"สาขา\s*(?:ที่)?\s*[:：]?\s*(\d{1,10})", text, re.IGNORECASE)
-                    if not m:
-                        continue
+            for line in (getattr(page, "lines", None) or []):
+                line_text = line.content.strip() if getattr(line, "content", None) else ""
+                if not line_text:
+                    continue
 
+                m = re.search(r"สาขา\s*(?:ที่)?\s*[:：]?\s*(\d{1,10})", line_text, re.IGNORECASE)
+                if not m:
+                    continue
+
+                x_min = 0
+                try:
+                    polygon = getattr(line, "polygon", None) or []
+                    # SDK รุ่นใหม่ polygon มักเป็น list ของ Point(x,y)
+                    if polygon and hasattr(polygon[0], "x"):
+                        xs = [p.x for p in polygon]
+                    else:
+                        # รองรับรูปแบบเลข flat list เดิม
+                        xs = polygon[0::2] if polygon else []
+                    x_min = min(xs) if xs else 0
+                except Exception:
                     x_min = 0
-                    try:
-                        xs = line.polygon[0::2]
-                        x_min = min(xs) if xs else 0
-                    except Exception:
-                        x_min = 0
 
-                    # เงื่อนไขหลัก: อยู่ด้านขวาของหน้า หรืออยู่บรรทัดเดียวกับคำว่า เลขที่
-                    # เพื่อเลี่ยงรายการสาขาบริษัทด้านซ้ายบนเอกสาร
-                    if (page_width and x_min >= page_width * 0.55) or re.search(r"เลขที่|No\.?", text, re.IGNORECASE):
-                        branch_value = m.group(1)
+                if (page_width and x_min >= page_width * 0.55) or re.search(r"เลขที่|No\.?", line_text, re.IGNORECASE):
+                    branch_value = m.group(1)
 
-                if branch_value:
-                    return branch_value.zfill(5)
+            if branch_value:
+                return branch_value.zfill(5)
 
-        # 0.2) fallback จาก OCR line: เลือกบรรทัดที่มีทั้ง เลขที่ และ สาขา
+        # 0.2) fallback จาก OCR line: เลือกบรรทัดที่มีทั้ง เลขที่/No. และ สาขา
         for line in lines:
             if re.search(r"เลขที่|No\.?", line, re.IGNORECASE) and re.search(r"สาขา", line):
                 m = re.search(r"สาขา\s*(?:ที่)?\s*[:：]?\s*(\d{1,10})", line, re.IGNORECASE)
                 if m:
                     return m.group(1).zfill(5)
 
-        # 0.3) fallback สุดท้าย: เอา occurrence ท้าย ๆ เพราะช่องสาขาใบกำกับภาษีมักอยู่หลังรายการสาขาด้านบน
+        # 0.3) fallback สุดท้าย เลือก occurrence ท้ายสุด
         matches = re.findall(r"สาขา\s*(?:ที่)?\s*[:：]?\s*(\d{1,10})", full_text, re.IGNORECASE)
         if matches:
             return matches[-1].zfill(5)
 
-    # 1) Checkbox selected: สำนักงานใหญ่ / สาขาที่
-    if layout_result:
-        for page in layout_result.pages:
-            selected_marks = [
-                m for m in (page.selection_marks or [])
-                if m.state.name == "SELECTED"
-            ]
+    # 1) Selection mark จาก prebuilt-invoice ถ้ามี
+    # ไม่ยิง layout เพิ่ม แต่ยังใช้ checkbox ได้เมื่อ model ส่ง selection_marks มา
+    for page in pages:
+        selected_marks = []
+        for mark in (getattr(page, "selection_marks", None) or []):
+            state = getattr(mark, "state", None)
+            state_name = getattr(state, "name", str(state or ""))
+            if str(state_name).upper().endswith("SELECTED"):
+                selected_marks.append(mark)
 
-            for mark in selected_marks:
-                mark_y = mark.polygon[1]
-                same_row_texts = []
+        for mark in selected_marks:
+            try:
+                mark_polygon = getattr(mark, "polygon", None) or []
+                if mark_polygon and hasattr(mark_polygon[0], "y"):
+                    mark_y = min(p.y for p in mark_polygon)
+                else:
+                    mark_y = mark_polygon[1] if len(mark_polygon) > 1 else 0
+            except Exception:
+                mark_y = 0
 
-                for line in page.lines:
-                    text = line.content.strip() if line.content else ""
-                    if not text:
-                        continue
+            same_row_texts = []
 
-                    line_y = line.polygon[1]
+            for line in (getattr(page, "lines", None) or []):
+                line_text = line.content.strip() if getattr(line, "content", None) else ""
+                if not line_text:
+                    continue
 
-                    if abs(mark_y - line_y) <= 0.08:
-                        same_row_texts.append(text)
+                try:
+                    line_polygon = getattr(line, "polygon", None) or []
+                    if line_polygon and hasattr(line_polygon[0], "y"):
+                        line_y = min(p.y for p in line_polygon)
+                    else:
+                        line_y = line_polygon[1] if len(line_polygon) > 1 else 0
+                except Exception:
+                    line_y = 0
 
-                same_row_text = " ".join(same_row_texts)
+                if abs(mark_y - line_y) <= 0.08:
+                    same_row_texts.append(line_text)
 
-                if re.search(r"สำนักงานใหญ่|Head\s*Office|HeadOffice", same_row_text, re.IGNORECASE):
-                    return "00000"
+            same_row_text = " ".join(same_row_texts)
 
-                value = find_first_by_patterns(VENDOR_BRANCH_PATTERNS, same_row_text)
-                if value:
-                    return value.zfill(5)
+            if re.search(r"สำนักงานใหญ่|Head\s*Office|HeadOffice", same_row_text, re.IGNORECASE):
+                return "00000"
 
-    # 2) ใบกำกับภาษีออกโดย "สำนักงานใหญ่"
+            value = find_first_by_patterns(VENDOR_BRANCH_PATTERNS, same_row_text)
+            if value:
+                return value.zfill(5)
+
+    # 2) ข้อความระบุสาขาที่ออกใบกำกับภาษีโดยตรง
     if re.search(
         r'(?:ออกโดย|สาขาที่ออกใบกำกับภาษี)\s*[:：]?\s*["“”]?\s*(สำนักงานใหญ่|Head\s*Office|HeadOffice)',
         full_text,
@@ -1371,7 +1665,6 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None):
     vendor_text = "\n".join(vendor_lines)
 
     value = find_first_by_patterns(VENDOR_BRANCH_PATTERNS, vendor_text)
-
     if value:
         return value.zfill(5)
 
@@ -1578,15 +1871,18 @@ def clean_po_from_field(purchase_order_no):
 
     return ",".join(dict.fromkeys(cleaned))
 
-def extract_tax_invoice_no_from_layout(layout_result):
-    lines = []
+def extract_tax_invoice_no_from_pages(invoices, ocr_cache=None):
+    """Fallback InvoiceNo จากผล prebuilt-invoice เพียง model เดียว"""
+    if ocr_cache is not None:
+        full_text = ocr_cache.get("full_text", "") or ""
+    else:
+        all_lines = []
+        for page in (getattr(invoices, "pages", None) or []):
+            for line in (getattr(page, "lines", None) or []):
+                if getattr(line, "content", None):
+                    all_lines.append(line.content.strip())
+        full_text = " ".join(all_lines)
 
-    for page in layout_result.pages:
-        for line in page.lines:
-            if line.content:
-                lines.append(line.content.strip())
-
-    full_text = " ".join(lines)
     full_text = re.sub(r"\s+", " ", full_text)
 
     value = find_first_by_patterns(INVOICE_PATTERNS, full_text)
@@ -1604,13 +1900,17 @@ def extract_tax_invoice_no_from_layout(layout_result):
 
     value = find_first_by_patterns(fallback_patterns, full_text)
 
-    if "NIFCO" in full_text or "นิฟโก้" in full_text:
-        value = "OTH".join(value)
+    # เดิมใช้ "OTH".join(value) ซึ่งจะแทรก OTH ระหว่างทุกตัวอักษร
+    # รักษาเจตนาเดิมโดยเติม OTH เฉพาะเมื่อ NIFCO และยังไม่มี prefix OTH
+    if value and ("NIFCO" in full_text.upper() or "นิฟโก้" in full_text):
+        if not str(value).upper().startswith("OTH"):
+            value = "OTH" + str(value)
 
-    if value and not re.match(r"^(?:PO)?(?:410|140)\d{7}$", value, re.IGNORECASE):
+    if value and not re.match(r"^(?:PO)?(?:410|140)\d{7}$", str(value), re.IGNORECASE):
         return value
 
     return ""
+
 
 def find_invoice_no_from_words(invoices):
     for page in invoices.pages:
@@ -1705,22 +2005,37 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
         address = extract_vendor_address_from_pages(invoices, ocr_cache)
 
     # ==========================================================
-    # Company / Account To Address
+    # Customer / Company Address
     # ==========================================================
-    # 1) อ่านจาก Azure CompanyAddress ก่อน
+    # prebuilt-invoice ใช้ CustomerAddress สำหรับที่อยู่ผู้ซื้อ/ลูกค้า
+    # เก็บลง CompanyAddress ต่อไป เพื่อไม่กระทบ logic / Excel เดิม
     Company_address = get_address_value(
-        invoice.fields.get("CompanyAddress")
+        invoice.fields.get("CustomerAddress")
     )
 
-    # บางเอกสาร Azure อาจ map ที่อยู่ผู้ซื้อไป BillingAddress
+    # บาง template Azure อาจ map ที่อยู่ผู้ซื้อไป BillingAddress
     if not Company_address:
         Company_address = get_address_value(
             invoice.fields.get("BillingAddress")
         )
 
-    # 2) ถ้า Azure ไม่มี Company Address ให้ fallback ไป OCR จาก Account To / Bill To
+    # รองรับกรณี SDK/model บางเวอร์ชันคืน key เดิมที่โปรแกรมเคยใช้งาน
+    if not Company_address:
+        Company_address = get_address_value(
+            invoice.fields.get("CompanyAddress")
+        )
+
+    # ถ้า Azure ไม่มี field ให้ fallback ไป OCR จาก Account To / Bill To
     if not Company_address:
         Company_address = extract_Company_address_from_pages(invoices, ocr_cache)
+
+    # ==========================================================
+    # Clean CompanyAddress
+    # ตัดข้อความก่อนเลขที่ตั้ง เช่น
+    # ชื่อลูกค้า 370... -> 370...
+    # HEADOFFICE:370... -> 370...
+    # ==========================================================
+    Company_address = clean_company_address_start(Company_address)
 
     supplier_from_pages = extract_supplier_name_from_pages(invoices, ocr_cache)
 
@@ -1777,6 +2092,9 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
 
     if supplier_name == "SSK Plastic Co.,Ltd.":
         supplier_name = "SSK Plastic Co.,Ltd. บริษัท เอส.เอส.เค พลาสติก จำกัด"
+
+    # Final SupplierName cleanup หลัง extraction/fallback/merge ทุกขั้นตอน
+    supplier_name = clean_supplier_name(supplier_name)
 
     invoice_date = normalize_invoice_date(
         get_field_value(invoice.fields.get("InvoiceDate"))
@@ -1846,6 +2164,8 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
         "TotalAmount": normalize_number(total_amount),
         "VATAmount": normalize_number(vat_amount),
         "AmountIncVat": normalize_number(amount_inc_vat),
+        "PurchaseOrderNo": clean_po_from_field(purchase_order_no1),
+        "TaxRemark": "",
         "Emessage": "",
     }
 
@@ -1871,6 +2191,8 @@ def build_excel_row(invoice):
         "CompanyName": invoice.get("CompanyName", ""),
         "CompanyTaxID": invoice.get("CompanyTaxID", ""),
         "CompanyBranch": invoice.get("CompanyBranch", ""),
+        "PurchaseOrderNo": invoice.get("PurchaseOrderNo", ""),
+        "TaxRemark": invoice.get("TaxRemark", ""),
         "Emessage": invoice.get("Emessage", "")
     }
 
@@ -1886,9 +2208,23 @@ def merge_invoice_row(existing, new):
         "VendorBranch",
         "Address",
         "CompanyAddress",
+        "TaxRemark",
     ]:
         if (not existing.get(field)) and new.get(field):
             existing[field] = new.get(field)
+
+    vals = []
+    for v in [
+        existing.get("PurchaseOrderNo", ""),
+        new.get("PurchaseOrderNo", "")
+    ]:
+        if v:
+            vals.extend(
+                [x.strip() for x in str(v).split(",") if x.strip()]
+            )
+
+    if vals:
+        existing["PurchaseOrderNo"] = ",".join(dict.fromkeys(vals))
 
     # TotalAmount และ AmountIncVat
     for field in ["TotalAmount", "AmountIncVat"]:
@@ -1990,13 +2326,10 @@ for input_pdf in pdf_list:
         if invoices is None:
             continue
 
-        layout_result = analyze_with_retry(client, "prebuilt-layout", pdf_path)
-        if layout_result is None:
-            continue
-
         # ==================================================
-        # FAST SAFE: สร้าง OCR cache เพียงครั้งเดียวต่อหน้า
-        # Azure ยังเรียก 2 model เหมือนเดิม จึงไม่ลดความแม่นยำ
+        # SINGLE MODEL MODE
+        # ยิง Azure เพียง prebuilt-invoice ครั้งเดียวต่อหน้า
+        # ใช้ invoices.pages / invoices.tables / OCR cache แทน prebuilt-layout
         # ==================================================
         ocr_cache = build_ocr_cache(invoices)
 
@@ -2032,7 +2365,9 @@ for input_pdf in pdf_list:
                 invoice_data["Address"] = extract_vendor_address_from_pages(invoices, ocr_cache)
 
             if not invoice_data.get("CompanyAddress"):
-                invoice_data["CompanyAddress"] = extract_Company_address_from_pages(invoices, ocr_cache)
+                invoice_data["CompanyAddress"] = clean_company_address_start(
+                    extract_Company_address_from_pages(invoices, ocr_cache)
+                )
 
             # ==================================================
             # Company Fix จาก CompanyAddress
@@ -2117,7 +2452,7 @@ for input_pdf in pdf_list:
 
 
             # ==================================================
-            # LAZY LAYOUT DECISION
+            # VENDOR / TPM DETECTION (SINGLE MODEL)
             # ==================================================
             is_union_plastic = "UNION PLASTIC" in full_text
             vendor_tax_id = clean_tax_id(
@@ -2148,37 +2483,28 @@ for input_pdf in pdf_list:
                 f"is_tpm={is_tpm}"
             )
 
-            #Custom UNION PLASTIC
-            if "UNION PLASTIC" in full_text:
-                layout_result = None
-
-            invoice_data["VendorBranch"] = extract_vendor_branch(invoices, layout_result, ocr_cache)
+            # ==================================================
+            # VendorBranch - SINGLE MODEL
+            # ใช้ OCR + line position/polygon + selection_marks (ถ้ามี)
+            # จาก prebuilt-invoice โดยตรง
+            # UNION PLASTIC จะใช้ OCR/vendor-zone fallback เช่นเดิม โดยไม่ต้องมี layout
+            # ==================================================
+            invoice_data["VendorBranch"] = extract_vendor_branch(
+                invoices,
+                layout_result=None,
+                ocr_cache=ocr_cache
+            )
 
             # ==================================================
-            # OCR Fix : TPM (Tax ID 0115539007424)
+            # TaxInvoiceNo fallback - SINGLE MODEL
+            # ใช้ OCR text ที่ได้จาก prebuilt-invoice แทน prebuilt-layout
             # ==================================================
-            if (
-                invoice_data.get("VendorTaxId") == "0115539007424"
-                and layout_result is not None
-            ):
-                for page in layout_result.pages:
-                    for line in page.lines:
-                        if line.content:
-                            line.content = re.sub(
-                                r'(?i)\bNo\.\s*8(?=\d{4,8}/\d{2,4})',
-                                "No.S",
-                                line.content
-                            )
-
-            if (
-                not invoice_data.get("TaxInvoiceNo")
-                and layout_result is not None
-            ):
-                fallback_no = extract_tax_invoice_no_from_layout(layout_result)
+            if not invoice_data.get("TaxInvoiceNo"):
+                fallback_no = extract_tax_invoice_no_from_pages(invoices, ocr_cache)
 
                 if fallback_no:
                     invoice_data["TaxInvoiceNo"] = fallback_no
-                    print(f"✅ Fallback TaxInvoiceNo from layout: {fallback_no}")
+                    print(f"✅ Fallback TaxInvoiceNo from prebuilt-invoice OCR: {fallback_no}")
 
             if not invoice_data.get("TaxInvoiceNo"):
                 fallback_no = find_invoice_no_from_words(invoices)
@@ -2240,6 +2566,28 @@ for input_pdf in pdf_list:
 
                         invoice_data["TaxInvoiceNo"] = fixed_invoice_no
 
+            # ==================================================
+            # PO Validation by Company Branch
+            # 1) หา PO ของ branch ที่ส่งมาตอน Run ก่อน
+            # 2) ถ้าไม่เจอ -> หาอีก branch
+            # 3) ถ้าเจออีก branch -> เก็บ PO และเพิ่ม Emessage
+            # ==================================================
+            po_from_ocr, po_branch_mismatch = extract_po_from_text_and_tables(
+                invoices,
+                branch_email,
+                invoice_data.get("PurchaseOrderNo", ""),
+                ocr_cache
+            )
+
+            if po_from_ocr:
+                invoice_data["PurchaseOrderNo"] = po_from_ocr
+
+            if po_branch_mismatch:
+                invoice_data["Emessage"] = append_msg(
+                    invoice_data.get("Emessage", ""),
+                    "PO does not match Company branch"
+                )
+
             tax_invoice_no = (invoice_data.get("TaxInvoiceNo") or "").strip()
             if re.match(r"^(?:PO)?(?:410|140)\d{7}$", tax_invoice_no, re.IGNORECASE):
                 invoice_data["TaxInvoiceNo"] = ""
@@ -2251,6 +2599,9 @@ for input_pdf in pdf_list:
             #Custom Nifco
             if "NIFCO" in full_text or "นิฟโก้" in full_text:
                 invoice_data["TaxInvoiceNo"] = "OTH" + str(invoice_data.get("TaxInvoiceNo", ""))
+
+            taxRemark = extract_tax_remark(invoices, ocr_cache)
+            invoice_data["TaxRemark"] = taxRemark
 
             invoice_data["InvoiceDate"] = normalize_invoice_date(invoice_data.get("InvoiceDate"))
             invoice_data["PostingDate"] = normalize_invoice_date(invoice_data.get("PostingDate"))
@@ -2302,6 +2653,8 @@ EXCEL_COLUMNS = [
     "CompanyName",
     "CompanyTaxID",
     "CompanyBranch",
+    "PurchaseOrderNo",
+    "TaxRemark",
     "Emessage",
 ]
 REQUIRED_FIELDS = [
@@ -2312,6 +2665,7 @@ REQUIRED_FIELDS = [
     "SupplierName",
     "VendorTaxId",
     "VendorBranch",
+    "PurchaseOrderNo",
 ]
 
 for row in all_data:
