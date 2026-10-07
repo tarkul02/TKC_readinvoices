@@ -1,101 +1,48 @@
 {
-    "invoice_patterns": [
-        {
-            "name": "Invoice AlphaNumeric",
-            "regex": "[A-Z]{1,3}\\d{6,20}"
-        },
-        {
-            "name": "Invoice Slash",
-            "regex": "[A-Z]{2}\\d{4}/\\d{4}"
-        },
-        {
-            "name": "Invoice Dash",
-            "regex": "\\d{2}-\\d{6}"
-        },
-        {
-            "name": "IG Invoice",
-            "regex": "IG\\d{3,6}[/-]\\d{3,5}"
-        }
+  "invoice_patterns": [
+    {"name": "Invoice AlphaNumeric", "regex": "[A-Z]{1,3}\\d{6,20}"},
+    {"name": "Invoice Slash", "regex": "[A-Z]{2}\\d{4}/\\d{4}"},
+    {"name": "Invoice Dash", "regex": "\\d{2}-\\d{6}"},
+    {"name": "IG Invoice", "regex": "IG\\d{3,6}[/-]\\d{3,5}"}
+  ],
+  "po_patterns": {
+    "00000": [
+      {"name": "PO41000 LOCAL", "regex": "(41000\\d{5})"},
+      {"name": "PO45000 LOCAL", "regex": "(45000\\d{5})"},
+      {"name": "P22000 LOCAL", "regex": "(P22000\\d{4})"},
+      {"name": "T22000 LOCAL", "regex": "(T22000\\d{4})"}
     ],
-    "po_patterns": {
-        "0000": [
-            {
-                "name": "PO41000 LOCAL",
-                "regex": "(41000\\d{5})"
-            },
-            {
-                "name": "PO45000 LOCAL",
-                "regex": "(45000\\d{5})"
-            },
-            {
-                "name": "P22000 LOCAL",
-                "regex": "(P22000\\d{4})"
-            },
-            {
-                "name": "T22000 LOCAL",
-                "regex": "(T22000\\d{4})"
-            }
-        ],
-
-        "1000": [
-            {
-                "name": "PO43000 LOCAL",
-                "regex": "(43000\\d{5})"
-            },
-            {
-                "name": "PO44000 LOCAL",
-                "regex": "(44000\\d{5})"
-            },
-            {
-                "name": "E22000 LOCAL",
-                "regex": "(E22000\\d{5})"
-            },
-            {
-                "name": "K22000 PC LOCAL",
-                "regex": "(K22000\\d{5})"
-            },
-            {
-                "name": "PO46000 LOCAL",
-                "regex": "(46000\\d{5})"
-            }
-        ]
-    },
-    "vendor_branch_patterns": [
-        {
-            "name": "Thai Branch",
-            "regex": "สาขา(?:ที่|เลขที่)?\\s*[:：]?\\s*(\\d{1,10})"
-        },
-        {
-            "name": "English Branch",
-            "regex": "Branch\\s*(?:No\\.?|Number|Code|ID)?\\s*[:：]?\\s*(\\d{1,10})"
-        }
-    ],
-    "taxid_patterns": [
-        {
-            "name": "Thai TaxID",
-            "regex": "เลขประจำตัวผู้เสียภาษี.*?([0-9OIl\\s\\-]{13,30})"
-        },
-        {
-            "name": "English TaxID",
-            "regex": "TAX\\s*ID.*?([0-9OIl\\s\\-]{13,30})"
-        },
-        {
-            "name": "TIN",
-            "regex": "TIN.*?([0-9OIl\\s\\-]{13,30})"
-        }
-    ],
-    "exclude_tax_ids": [
-        "0105529030059"
-    ],
-    "stop_keywords": [
-        "BILL TO",
-        "SHIP TO",
-        "Customer",
-        "Customer Name",
-        "Customer Code",
-        "ชื่อลูกค้า",
-        "รหัสลูกค้า",
-        "Delivery To",
-        "ส่งของที่"
+    "00001": [
+      {"name": "PO43000 LOCAL", "regex": "(43000\\d{5})"},
+      {"name": "PO44000 LOCAL", "regex": "(44000\\d{5})"},
+      {"name": "E22000 LOCAL", "regex": "(E22000\\d{5})"},
+      {"name": "K22000 PC LOCAL", "regex": "(K22000\\d{5})"},
+      {"name": "PO46000 LOCAL", "regex": "(46000\\d{5})"}
     ]
+  },
+  "vendor_branch_patterns": [
+    {"name": "Thai Vendor Branch", "regex": "สาขา(?:ที่|เลขที่)?\\s*[:：#-]?\\s*(\\d{1,10})"},
+    {"name": "English Vendor Branch", "regex": "Branch\\s*(?:No\\.?|Number|Code|ID)?\\s*[:：#-]?\\s*(\\d{1,10})"}
+  ],
+  "vendor_issuer_patterns": [
+    {"name": "Thai Tax Invoice Issued By", "regex": "ใบกำกับภาษี\\s*ออกโดย"},
+    {"name": "Thai Document Issued By", "regex": "เอกสาร\\s*ออกโดย"},
+    {"name": "Thai Issued By", "regex": "ออกโดย\\s*[:：]?"},
+    {"name": "English Issued By", "regex": "\\bISSUED\\s+BY\\b"},
+    {"name": "English Invoice Issued By", "regex": "\\bINVOICE\\s+ISSUED\\s+BY\\b"}
+  ],
+  "customer_branch_patterns": [
+    {"name": "Thai Customer Branch", "regex": "สาขา(?:ที่|เลขที่)?\\s*[:：#-]?\\s*(\\d{1,10})"},
+    {"name": "English Customer Branch", "regex": "Branch\\s*(?:No\\.?|Number|Code|ID)?\\s*[:：#-]?\\s*(\\d{1,10})"}
+  ],
+  "taxid_patterns": [
+    {"name": "Thai TaxID", "regex": "เลขประจำตัวผู้เสียภาษี.*?([0-9OIl\\s\\-]{13,30})"},
+    {"name": "English TaxID", "regex": "TAX\\s*ID.*?([0-9OIl\\s\\-]{13,30})"},
+    {"name": "TIN", "regex": "TIN.*?([0-9OIl\\s\\-]{13,30})"}
+  ],
+  "exclude_tax_ids": ["0105529030059"],
+  "stop_keywords": [
+    "BILL TO", "SHIP TO", "Customer", "Customer Name", "Customer Code",
+    "ชื่อลูกค้า", "รหัสลูกค้า", "Delivery To", "ส่งของที่"
+  ]
 }
