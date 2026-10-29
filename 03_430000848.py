@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 import io
 import re
 import json
@@ -30,6 +31,10 @@ from config import (
 # 📥 INPUT Parameter
 # ====================================================
 
+if len(sys.argv) < 3:
+    print("❌ Usage: python 03_430000848.py <today_str> <branch_email>")
+    sys.exit(2)
+
 today_str = sys.argv[1]
 branch_email = sys.argv[2]
 
@@ -44,7 +49,209 @@ input_folder = paths["input_folder"]
 temp_folder = paths["temp_folder"]
 output_excel = paths["output_excel"]
 dest_folder = paths["dest_folder"]
+REPORT_TXT_FOLDER = paths["report_txt_folder"]
 
+# เก็บ Summary Invoice Report แยกตามรอบที่รัน โดยอ้างอิงโฟลเดอร์ Excel
+# ของรอบเดียวกับไฟล์ Invoice แทนการ fix ไว้ที่ file_test_1
+# เก็บ Summary Invoice Report ไว้ที่ Excel\Report
+REPORT_ARCHIVE_FOLDER = os.path.join(
+    os.path.dirname(os.path.dirname(output_excel)),
+    "Report"
+)
+REPORT_HT_COLUMNS = [
+    "ReportRecordID", "CompanyCode", "DocumentDate", "PostingDate",
+    "DocumentType", "InvoiceNo", "ReferenceCode", "Currency",
+    "HeaderField09", "HeaderField10", "HeaderField11", "HeaderDate",
+    "AmountIncVat_H", "AmountIncVat_H_Repeat", "TaxCode",
+    "TotalAmount_T", "VATAmount_T", "HeaderField18", "HeaderField19",
+    "SupplierName", "TotalAmount_T_Repeat", "VATAmount_T_Repeat",
+]
+
+
+def _report_clean(value):
+    return str(value or "").strip().lstrip("\ufeff")
+
+
+def convert_report_ht_to_excel(report_folder):
+    """แปลง H/T เป็น Excel หากมี Report; หากไม่มีให้ข้ามและทำงานต่อ."""
+    if not os.path.isdir(report_folder):
+        print(
+            f"⚠️ ไม่พบโฟลเดอร์ Summary Invoice Report: {report_folder}"
+        )
+        print("⏭️ ข้ามขั้นตอน Summary Invoice Report และทำ OCR ต่อ")
+        return None
+
+    # 2. ตรวจสอบว่ามีไฟล์ TXT หรือไม่
+    txt_files = [
+        f for f in os.listdir(report_folder)
+        if f.lower().endswith(".txt")
+    ]
+
+    if not txt_files:
+        print("⚠️ ไม่พบไฟล์ Report TXT — ข้ามขั้นตอน Report")
+        return None
+
+    # 3. โค้ดเดิมสำหรับอ่านและแปลงไฟล์ H/T
+    # ให้วางโค้ดเดิมต่อจากตรงนี้
+
+    candidates = []
+    for filename in os.listdir(report_folder):
+        full_path = os.path.join(report_folder, filename)
+        if not os.path.isfile(full_path) or not filename.lower().endswith(".txt"):
+            continue
+        normalized_name = os.path.splitext(filename)[0].casefold().replace(" ", "_")
+        if normalized_name.startswith("summary") or (
+            "invoice" in normalized_name and "report" in normalized_name
+        ):
+            candidates.append(full_path)
+
+    if not candidates:
+        raise RuntimeError(
+            f"ไม่พบไฟล์ Summary Invoice Report .txt ใน {report_folder}; หยุดก่อนเริ่ม OCR"
+        )
+    if len(candidates) != 1:
+        names = ", ".join(sorted(os.path.basename(p) for p in candidates))
+        raise RuntimeError(
+            f"พบไฟล์ Summary Invoice Report มากกว่า 1 ไฟล์: {names}; หยุดก่อนเริ่ม OCR"
+        )
+
+    txt_path = candidates[0]
+    headers, totals, errors, order = {}, {}, [], []
+    try:
+        with open(txt_path, "r", encoding="utf-8-sig", errors="replace") as report_file:
+            lines = report_file.read().splitlines()
+    except OSError as exc:
+        raise RuntimeError(f"อ่านไฟล์ TXT ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR") from exc
+
+    for line_no, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        fields = [_report_clean(item) for item in line.split("|")]
+        record_type = fields[0][:1].upper() if fields and fields[0] else ""
+        if record_type not in ("H", "T"):
+            # L (line item) และ record ประเภทอื่นไม่ต้องส่งออก
+            continue
+
+        record_id = fields[0][1:].strip()
+        if not record_id or not record_id.isdigit():
+            errors.append(f"บรรทัด {line_no}: Record ID ของ {record_type} ไม่ถูกต้อง")
+            continue
+
+        if record_type == "H":
+            if record_id in headers:
+                errors.append(f"บรรทัด {line_no}: พบ H Record ID ซ้ำ {record_id}")
+                continue
+            headers[record_id] = fields
+            order.append(record_id)
+            if len(fields) < 20:
+                errors.append(
+                    f"บรรทัด {line_no}: H Record ID {record_id} มี {len(fields)} fields; ต้องมีอย่างน้อย 20"
+                )
+        else:
+            if record_id in totals:
+                errors.append(f"บรรทัด {line_no}: พบ T Record ID ซ้ำ {record_id}")
+                continue
+            totals[record_id] = fields
+            if len(fields) < 4:
+                errors.append(
+                    f"บรรทัด {line_no}: T Record ID {record_id} มี {len(fields)} fields; ต้องมีอย่างน้อย 4"
+                )
+
+    if not headers:
+        errors.append("ไม่พบ H record ในไฟล์รายงาน")
+    for record_id in headers.keys() - totals.keys():
+        errors.append(f"ไม่พบ T record ที่จับคู่กับ H Record ID {record_id}")
+    for record_id in totals.keys() - headers.keys():
+        errors.append(f"T Record ID {record_id} ไม่มี H record ที่จับคู่กัน")
+
+    if errors:
+        detail = "\n - ".join(errors[:30])
+        if len(errors) > 30:
+            detail += f"\n - และมีปัญหาเพิ่มเติมอีก {len(errors) - 30} รายการ"
+        raise RuntimeError("ตรวจสอบ Summary Invoice Report ไม่ผ่าน; หยุดก่อนเริ่ม OCR:\n - " + detail)
+
+    rows = []
+    for record_id in order:
+        h, t = headers[record_id], totals[record_id]
+        rows.append({
+            "ReportRecordID": record_id,
+            "CompanyCode": h[1], "DocumentDate": h[2], "PostingDate": h[3],
+            "DocumentType": h[4], "InvoiceNo": h[5], "ReferenceCode": h[6],
+            "Currency": h[7], "HeaderField09": h[8], "HeaderField10": h[9],
+            "HeaderField11": h[10], "HeaderDate": h[11],
+            "AmountIncVat_H": h[12], "AmountIncVat_H_Repeat": h[13],
+            "TaxCode": h[14], "TotalAmount_T": t[1], "VATAmount_T": t[3],
+            "HeaderField18": h[17], "HeaderField19": h[18],
+            "SupplierName": h[19], "TotalAmount_T_Repeat": t[2],
+            "VATAmount_T_Repeat": t[3],
+        })
+
+    # เก็บทั้ง TXT และ Excel ไว้ในโฟลเดอร์ Report เดียวกัน
+    try:
+        os.makedirs(REPORT_ARCHIVE_FOLDER, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(
+            f"สร้างโฟลเดอร์ Report ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR"
+        ) from exc
+
+    report_basename = os.path.splitext(os.path.basename(txt_path))[0]
+    output_path = os.path.join(REPORT_ARCHIVE_FOLDER, report_basename + ".xlsx")
+    archived_txt_path = os.path.join(REPORT_ARCHIVE_FOLDER, os.path.basename(txt_path))
+    if os.path.exists(output_path):
+        raise RuntimeError(
+            f"ไฟล์ Excel ปลายทางมีอยู่แล้ว จึงไม่เขียนทับ: {output_path}; หยุดก่อนเริ่ม OCR"
+        )
+    if os.path.exists(archived_txt_path):
+        raise RuntimeError(
+            f"ไฟล์ TXT ปลายทางมีอยู่แล้ว จึงไม่เขียนทับ: {archived_txt_path}; หยุดก่อนเริ่ม OCR"
+        )
+
+    try:
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            df = pd.DataFrame(rows, columns=REPORT_HT_COLUMNS)
+            df.to_excel(writer, index=False, sheet_name="Report_HT")
+            worksheet = writer.sheets["Report_HT"]
+            worksheet.freeze_panes = "A2"
+            worksheet.auto_filter.ref = worksheet.dimensions
+            for column_cells in worksheet.columns:
+                max_width = max(
+                    (len(str(cell.value)) if cell.value is not None else 0)
+                    for cell in column_cells
+                )
+                worksheet.column_dimensions[column_cells[0].column_letter].width = min(
+                    max(max_width + 2, 12), 40
+                )
+    except Exception as exc:
+        raise RuntimeError(
+            f"สร้าง Excel จาก {os.path.basename(txt_path)} ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR"
+        ) from exc
+
+    print("\n================ Summary Invoice Report ================")
+    print(f"TXT ต้นฉบับ: {txt_path}")
+    print(f"Excel ที่สร้าง: {output_path}")
+    print(f"จำนวน Invoice (H/T): {len(rows)}")
+
+    # ย้ายไฟล์ TXT ต้นฉบับไปไว้คู่กับ Excel ในโฟลเดอร์ Report
+    # เนื้อหา TXT ไม่ถูกแก้ไข และตรวจสอบชื่อซ้ำก่อนย้ายเพื่อป้องกันการเขียนทับ
+    try:
+        shutil.move(txt_path, archived_txt_path)
+        print(f"ย้าย TXT ไปเก็บแล้ว: {archived_txt_path}")
+        print(f"เก็บ Excel ไว้ที่: {output_path}")
+    except Exception as exc:
+        raise RuntimeError(
+            f"สร้าง/ย้ายไฟล์ TXT ไปยังโฟลเดอร์ Report ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR"
+        ) from exc
+
+    print("========================================================\n")
+    return output_path
+
+
+# ต้องแปลงและตรวจสอบรายงานให้สำเร็จก่อนสร้าง Azure client/เริ่ม OCR
+try:
+    report_excel_path = convert_report_ht_to_excel(REPORT_TXT_FOLDER)
+except Exception as report_error:
+    print(f"❌ Summary Invoice Report Error: {report_error}")
+    sys.exit(1)
 
 # ====================================================
 # 🔐 Azure
@@ -2590,6 +2797,13 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None, vendor_t
         for pattern in VENDOR_ISSUER_PATTERNS
     ]
 
+    # รูปแบบบน Invoice บางเจ้า เช่น YPC:
+    # "สาขาที่ออกใบกำกับภาษีคือ Head Office"
+    # เป็นข้อมูลสาขาผู้ออกเอกสารโดยตรง ไม่ใช่รายการ Master Branch
+    issuer_by_patterns.append(
+        re.compile(r"สาขาที่ออกใบกำกับภาษี", re.IGNORECASE)
+    )
+
     # จำกัดการหาไว้ก่อน Customer Tax ID เพื่อกัน Customer/Company branch
     explicit_issuer_end = len(lines)
     for _i, _text in enumerate(lines):
@@ -3693,11 +3907,11 @@ def build_excel_row(invoice):
         "AmountIncVat": invoice.get("AmountIncVat", ""),
         "PurchaseOrderNo": invoice.get("PurchaseOrderNo", ""),
         "TaxRemark": invoice.get("TaxRemark", ""),
-        "CustomerName": invoice.get("CompanyName", ""),
-        "CustomerTaxID": invoice.get("CompanyTaxID", ""),
-        "CustomerBranch": invoice.get("CompanyBranch", ""),
+        "Name": invoice.get("CompanyName", ""),
+        "TaxID": invoice.get("CompanyTaxID", ""),
+        "Branch": invoice.get("CompanyBranch", ""),
         "CompanyBranch_invoice": invoice.get("CompanyBranch_invoice", ""),
-        "CustomerAddress": invoice.get("CompanyAddress", ""),
+        "Address": invoice.get("CompanyAddress", ""),
         "Assignment": invoice.get("Assignment", ""),
         "Emessage": invoice.get("Emessage", "")
     }
@@ -4264,20 +4478,20 @@ EXCEL_COLUMNS = [
     "TaxInvoiceNo",
     "InvoiceDate",
     "SupplierName",
-    "Address",
-    "Assignment",
     "VendorTaxId",
     "VendorBranch",
+    "Address",
     "TotalAmount",
     "VATAmount",
     "AmountIncVat",
-    "CustomerName",
-    "CustomerTaxID",
-    "CustomerBranch",
-    "CompanyBranch_invoice",
-    "CustomerAddress",
     "PurchaseOrderNo",
     "TaxRemark",
+    "Name",
+    "TaxID",
+    "Branch",
+    # "CompanyBranch_invoice",
+    "Address",
+    "Assignment",
     "Emessage",
 ]
 REQUIRED_FIELDS = [

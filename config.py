@@ -83,6 +83,11 @@ def get_paths(today_str, branch_email, process_name):
     )
 
     # -----------------------------
+    # Report TXT Folder
+    # -----------------------------
+    report_txt_folder = input_folder
+
+    # -----------------------------
     # Destination
     # -----------------------------
     dest_folder = os.path.join(
@@ -99,4 +104,5 @@ def get_paths(today_str, branch_email, process_name):
         "temp_folder": temp_folder,
         "output_excel": output_excel,
         "dest_folder": dest_folder,
+        "report_txt_folder": report_txt_folder,
     }
