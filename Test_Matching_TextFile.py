@@ -1,43 +1,69 @@
-
-# -*- coding: utf-8 -*-
-"""Validate OCR Excel against H records in Summary Invoice Report TXT.
-
-This standalone test does not run OCR and does not read PDF files.
-Only lines beginning with H are used. L and T records are ignored.
-"""
-
 import os
 import re
-from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, date
 from openpyxl import load_workbook
 
-# ============================================================
-# Fixed paths: change these paths to match your computer
-# ============================================================
-EXCEL_PATH = r"C:\testTKC\OpenAI_Invoice_Processing_AP\INPUT\1100\ocr_output.xlsx"
-TEXT_PATH = r"C:\testTKC\OpenAI_Invoice_Processing_AP\INPUT\1100\summary_invoice_report_20260620.txt"
-OUTPUT_EXCEL_PATH = r"C:\testTKC\OpenAI_Invoice_Processing_AP\INPUT\1100\OutputExcel\ocr_output_matched.xlsx"
 
-VALIDATION_PREFIX = "Summary validation:"
+# ============================================================
+# FILE PATHS
+# ============================================================
 
+EXCEL_PATH = (
+    r"C:\testTKC\OpenAI_Invoice_Processing_AP\INPUT\1100\All_Invoices.xlsx"
+)
+
+TEXT_PATH = (
+    r"C:\testTKC\OpenAI_Invoice_Processing_AP\INPUT\1100\summary invoice report_test.txt"
+)
+
+MASTER_PATH = (
+    r"C:\testTKC\OpenAI_Invoice_Processing_AP\MasterSuplier"
+    r"\Master Vendor Name (MAT)_TH_ENG.xlsx"
+)
+
+OUTPUT_EXCEL_PATH = (
+    r"C:\testTKC\OpenAI_Invoice_Processing_AP\INPUT\1100"
+    r"\OutputExcel\ocr_output_matched.xlsx"
+)
+
+
+# ============================================================
+# NORMALIZE FUNCTIONS
+# ============================================================
 
 def clean(value):
-    return str(value if value is not None else "").strip().lstrip("\ufeff")
+    if value is None:
+        return ""
+    return str(value).strip().lstrip("\ufeff")
 
 
-def normalize_invoice_key(value):
-    """Ignore spaces and case when matching invoice numbers."""
+def normalize_invoice(value):
     return re.sub(r"\s+", "", clean(value)).casefold()
 
 
+def normalize_tax_id(value):
+    return re.sub(r"\D", "", clean(value))
+
+
 def normalize_text(value):
-    """Normalize whitespace and case for text comparison."""
-    return re.sub(r"\s+", " ", clean(value)).strip().casefold()
+    return re.sub(
+        r"\s+", " ", clean(value)
+    ).strip().casefold()
+
+
+def normalize_branch(value):
+    return re.sub(
+        r"\s+", "", clean(value)
+    ).casefold()
 
 
 def normalize_date(value):
-    """Normalize Excel dates and common date strings to DDMMYYYY where possible."""
+    """
+    Excel format: dd/mm/yyyy
+    TXT format: ddmmyyyy
+    """
+
     if value is None or clean(value) == "":
         return ""
 
@@ -45,78 +71,67 @@ def normalize_date(value):
         return value.strftime("%d%m%Y")
 
     text = clean(value)
-    digits = re.sub(r"\D", "", text)
-
-    if len(digits) == 8 and digits.isdigit():
-        # Support YYYYMMDD and DDMMYYYY.
-        if digits[:4] in ("19", "20"):
-            try:
-                return datetime.strptime(
-                    digits, "%Y%m%d"
-                ).strftime("%d%m%Y")
-            except ValueError:
-                pass
-
-        try:
-            return datetime.strptime(
-                digits, "%d%m%Y"
-            ).strftime("%d%m%Y")
-        except ValueError:
-            pass
 
     for fmt in (
         "%d/%m/%Y",
         "%d-%m-%Y",
         "%Y-%m-%d",
-        "%d/%m/%y",
-        "%d-%m-%y",
+        "%d%m%Y",
     ):
         try:
-            return datetime.strptime(text, fmt).strftime("%d%m%Y")
+            return datetime.strptime(
+                text, fmt
+            ).strftime("%d%m%Y")
         except ValueError:
-            continue
+            pass
 
-    return normalize_text(text)
+    return re.sub(r"\D", "", text)
 
 
 def normalize_amount(value):
-    """Normalize numeric values to two decimals; tolerate commas/currency symbols."""
     if value is None or clean(value) == "":
-        return ""
+        return None
 
     if isinstance(value, (int, float, Decimal)):
         try:
-            return Decimal(str(value)).quantize(Decimal("0.01"))
+            return Decimal(str(value)).quantize(
+                Decimal("0.01")
+            )
         except InvalidOperation:
-            return normalize_text(value)
+            return None
 
     text = clean(value).replace(",", "")
-    text = re.sub(r"[^\d.()\-]", "", text)
+    text = re.sub(r"[^\d.\-()]", "", text)
 
     if text.startswith("(") and text.endswith(")"):
         text = "-" + text[1:-1]
 
     try:
-        return Decimal(text).quantize(Decimal("0.01"))
+        return Decimal(text).quantize(
+            Decimal("0.01")
+        )
     except (InvalidOperation, ValueError):
-        return normalize_text(value)
+        return None
 
 
-def extract_vendor_branch(supplier_field):
-    """Extract the text inside the final parentheses."""
-    matches = re.findall(r"\(([^()]*)\)", clean(supplier_field))
-    return matches[-1].strip() if matches else ""
+# ============================================================
+# SUMMARY TXT FUNCTIONS
+# ============================================================
 
+def load_summary_h_records(txt_path):
+    """
+    Read only H records.
+    Ignore L and T records.
 
-def supplier_name_without_branch(supplier_field):
-    """Remove a trailing branch in parentheses from supplier name."""
-    text = clean(supplier_field)
-    text = re.sub(r"\s*\([^()]*\)\s*$", "", text)
-    return re.sub(r"\s+", " ", text).strip()
+    Field positions:
+        Field 3  = InvoiceDate
+        Field 6  = TaxInvoiceNo
+        Field 14 = AmountIncVat
+        Field 16 = TotalAmount
+        Field 17 = VATAmount
+        Field 20 = SupplierName + VendorBranch
+    """
 
-
-def parse_summary_h_records(txt_path):
-    """Read only H lines. Field positions are 1-based."""
     records = {}
 
     with open(
@@ -124,128 +139,205 @@ def parse_summary_h_records(txt_path):
         "r",
         encoding="utf-8-sig",
         errors="replace"
-    ) as report_file:
+    ) as file:
 
-        for line_no, raw_line in enumerate(report_file, 1):
-            line = raw_line.rstrip("\r\n")
+        for line_number, line in enumerate(file, 1):
 
-            # Ignore all lines not beginning with H.
+            line = line.rstrip("\r\n")
+
+            # Only process H records.
             if not line.startswith("H"):
                 continue
 
-            fields = [clean(item) for item in line.split("|")]
+            fields = [
+                clean(item)
+                for item in line.split("|")
+            ]
 
-            if not fields or not fields[0].startswith("H"):
+            if len(fields) < 20:
                 continue
 
-            # Field 6: TaxInvoiceNo
-            invoice_no = fields[5] if len(fields) >= 6 else ""
-            key = normalize_invoice_key(invoice_no)
+            invoice_no = fields[5]
+            invoice_key = normalize_invoice(invoice_no)
 
-            if not key:
+            if not invoice_key:
                 continue
 
-            # Field 20: SupplierName + VendorBranch
-            supplier_field = fields[19] if len(fields) >= 20 else ""
+            supplier_field = fields[19]
+
+            # Extract branch from parentheses in Field 20.
+            branch_matches = re.findall(
+                r"\(([^()]*)\)",
+                supplier_field
+            )
+
+            vendor_branch = (
+                branch_matches[-1].strip()
+                if branch_matches else ""
+            )
+
+            # Remove trailing branch from supplier name.
+            supplier_name = re.sub(
+                r"\s*\([^()]*\)\s*$",
+                "",
+                supplier_field
+            ).strip()
 
             record = {
-                "LineNo": line_no,
-                "H": line,
-                "TaxInvoiceNo": invoice_no,
-
-                # Field 3
-                "InvoiceDate": fields[2] if len(fields) >= 3 else "",
-
-                # Field 20, separated into name and branch
-                "SupplierName": supplier_name_without_branch(
-                    supplier_field
-                ),
-                "VendorBranch": extract_vendor_branch(
-                    supplier_field
-                ),
-
-                # Field 16
-                "TotalAmount": fields[15] if len(fields) >= 16 else "",
-
-                # Field 17
-                "VATAmount": fields[16] if len(fields) >= 17 else "",
-
-                # Field 14
-                "AmountIncVat": fields[13] if len(fields) >= 14 else "",
+                "LineNumber": line_number,
+                "InvoiceDate": fields[2],
+                "TaxInvoiceNo": fields[5],
+                "AmountIncVat": fields[13],
+                "TotalAmount": fields[15],
+                "VATAmount": fields[16],
+                "SupplierName": supplier_name,
+                "VendorBranch": vendor_branch,
             }
 
-            records.setdefault(key, []).append(record)
+            records.setdefault(
+                invoice_key, []
+            ).append(record)
 
     return records
 
 
-def validate_value(excel_value, report_value, field_name):
-    """Return a mismatch description, or an empty string if values match."""
+# ============================================================
+# MASTER SUPPLIER FUNCTIONS
+# ============================================================
 
-    if field_name == "InvoiceDate":
-        left = normalize_date(excel_value)
-        right = normalize_date(report_value)
+def load_master_supplier(master_path):
+    """
+    Master Supplier columns:
+        Column 3 = VendorTaxId
+        Column 4 = SupplierName_Master_EN
+        Column 5 = SupplierName_Master_TH
+    """
 
-    elif field_name in (
-        "TotalAmount",
-        "VATAmount",
-        "AmountIncVat",
-    ):
-        left = normalize_amount(excel_value)
-        right = normalize_amount(report_value)
-
-    elif field_name == "VendorBranch":
-        left = re.sub(
-            r"\s+", "", clean(excel_value)
-        ).casefold()
-
-        right = re.sub(
-            r"\s+", "", clean(report_value)
-        ).casefold()
-
-    else:
-        left = normalize_text(excel_value)
-        right = normalize_text(report_value)
-
-    if left == right:
-        return ""
-
-    return (
-        f"{field_name} mismatch "
-        f"(Excel='{clean(excel_value)}' / "
-        f"TXT='{clean(report_value)}')"
+    wb = load_workbook(
+        master_path,
+        read_only=True,
+        data_only=True
     )
 
+    ws = wb.active
 
-def validate_excel_against_summary(
+    master_data = {}
+
+    for row in ws.iter_rows(
+        min_row=2,
+        values_only=True
+    ):
+
+        vendor_tax_id = (
+            row[2] if len(row) > 2 else None
+        )
+
+        supplier_name_en = (
+            row[3] if len(row) > 3 else None
+        )
+
+        supplier_name_th = (
+            row[4] if len(row) > 4 else None
+        )
+
+        tax_key = normalize_tax_id(vendor_tax_id)
+
+        if not tax_key:
+            continue
+
+        master_data.setdefault(
+            tax_key, []
+        ).append({
+            "SupplierName_Master_EN": clean(
+                supplier_name_en
+            ),
+            "SupplierName_Master_TH": clean(
+                supplier_name_th
+            ),
+        })
+
+    wb.close()
+
+    return master_data
+
+
+# ============================================================
+# E-MESSAGE FUNCTION
+# ============================================================
+
+def append_emessage(cell, new_messages):
+    """
+    Preserve existing Emessage.
+    Append new messages without overwriting existing messages.
+    Avoid adding identical messages again on rerun.
+    """
+
+    existing = clean(cell.value)
+
+    messages = [
+        item.strip()
+        for item in existing.split(",")
+        if item.strip()
+    ]
+
+    for message in new_messages:
+        if message not in messages:
+            messages.append(message)
+
+    cell.value = ",".join(messages)
+
+
+# ============================================================
+# VALIDATION FUNCTION
+# ============================================================
+
+def validate_excel(
     excel_path,
-    text_path,
+    txt_path,
+    master_path,
     output_path
 ):
-    if not os.path.isfile(excel_path):
-        raise FileNotFoundError(
-            f"ไม่พบ Excel: {excel_path}"
-        )
 
-    if not os.path.isfile(text_path):
-        raise FileNotFoundError(
-            f"ไม่พบ Summary TXT: {text_path}"
-        )
+    # --------------------------------------------------------
+    # Check input files
+    # --------------------------------------------------------
 
-    output_dir = os.path.dirname(output_path)
+    for path in (
+        excel_path,
+        txt_path,
+        master_path
+    ):
+        if not os.path.isfile(path):
+            raise FileNotFoundError(
+                f"File not found: {path}"
+            )
 
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
+    # --------------------------------------------------------
+    # Load TXT H records
+    # --------------------------------------------------------
 
-    # Read H records from Summary TXT only.
-    report_records = parse_summary_h_records(text_path)
+    summary_records = load_summary_h_records(
+        txt_path
+    )
+
+    # --------------------------------------------------------
+    # Load Master Supplier
+    # --------------------------------------------------------
+
+    master_records = load_master_supplier(
+        master_path
+    )
+
+    # --------------------------------------------------------
+    # Load OCR Excel
+    # --------------------------------------------------------
 
     wb = load_workbook(excel_path)
     ws = wb.active
 
-    # Map Excel header names to column numbers.
+    # Map Excel headers.
     column_map = {
-        str(cell.value).strip(): cell.column
+        clean(cell.value): cell.column
         for cell in ws[1]
         if cell.value is not None
     }
@@ -253,7 +345,7 @@ def validate_excel_against_summary(
     required_columns = [
         "TaxInvoiceNo",
         "InvoiceDate",
-        "SupplierName",
+        "VendorTaxId",
         "VendorBranch",
         "TotalAmount",
         "VATAmount",
@@ -262,145 +354,323 @@ def validate_excel_against_summary(
     ]
 
     missing_columns = [
-        name
-        for name in required_columns
-        if name not in column_map
+        col for col in required_columns
+        if col not in column_map
     ]
 
     if missing_columns:
         wb.close()
-        raise RuntimeError(
-            "ไม่พบคอลัมน์ใน Excel: "
+        raise ValueError(
+            "Missing Excel columns: "
             + ", ".join(missing_columns)
         )
 
-    counts = {
-        "MATCH": 0,
-        "MISMATCH": 0,
-        "NOT FOUND": 0,
-        "DUPLICATE": 0,
-        "EMPTY INVOICE": 0,
+    result_count = {
+        "PASS": 0,
+        "FAIL": 0,
+        "TXT_NOT_FOUND": 0,
+        "MASTER_NOT_FOUND": 0,
     }
 
-    # Process Excel rows; row 1 is the header.
-    for row_num in range(2, ws.max_row + 1):
+    # ========================================================
+    # PROCESS EACH EXCEL ROW
+    # ========================================================
+
+
+    for row_number in range(2, ws.max_row + 1):
+
+        errors = []
+
+        def get_excel_value(column_name):
+            return ws.cell(
+                row=row_number,
+                column=column_map[column_name]
+            ).value
+
+        tax_invoice_no = get_excel_value("TaxInvoiceNo")
+
+        if tax_invoice_no is None or clean(tax_invoice_no) == "":
+            print(f"Row {row_number}: SKIPPED - Empty TaxInvoiceNo")
+            continue
+        
+        invoice_key = normalize_invoice(
+            tax_invoice_no
+        )
+
+        txt_record = None
 
         emessage_cell = ws.cell(
-            row=row_num,
+            row=row_number,
             column=column_map["Emessage"]
         )
 
-        existing_message = clean(emessage_cell.value)
+        # ----------------------------------------------------
+        # 1. Find TaxInvoiceNo in Summary TXT
+        # ----------------------------------------------------
 
-        # Preserve other messages and remove this validator's old result.
-        other_messages = [
-            part.strip()
-            for part in existing_message.split("; ")
-            if part.strip()
-            and not part.strip().startswith(VALIDATION_PREFIX)
-        ]
+        tax_invoice_no = get_excel_value(
+            "TaxInvoiceNo"
+        )
 
-        invoice_no = ws.cell(
-            row=row_num,
-            column=column_map["TaxInvoiceNo"]
-        ).value
+        invoice_key = normalize_invoice(
+            tax_invoice_no
+        )
 
-        key = normalize_invoice_key(invoice_no)
-        errors = []
+        txt_record = None
 
-        if not key:
-            errors.append("TaxInvoiceNo is empty")
-            counts["EMPTY INVOICE"] += 1
+        if invoice_key:
+            matched_records = summary_records.get(
+                invoice_key, []
+            )
 
-        else:
-            candidates = report_records.get(key, [])
+            if matched_records:
+                txt_record = matched_records[0]
 
-            if not candidates:
+        # ----------------------------------------------------
+        # 2. If TaxInvoiceNo is NOT FOUND:
+        #    Skip ALL remaining validation.
+        # ----------------------------------------------------
+
+        if txt_record is None:
+
+            append_emessage(
+                emessage_cell,
+                ["ไม่พบ"]
+            )
+
+            result_count["FAIL"] += 1
+            result_count["TXT_NOT_FOUND"] += 1
+
+            print(
+                f"Row {row_number}: FAIL - ไม่พบ"
+            )
+
+            continue
+
+        # ----------------------------------------------------
+        # 3. Find VendorTaxId in Master Supplier
+        # ----------------------------------------------------
+
+        vendor_tax_id = get_excel_value(
+            "VendorTaxId"
+        )
+
+        tax_id_key = normalize_tax_id(
+            vendor_tax_id
+        )
+
+        SupplierName_Master_EN = ""
+        SupplierName_Master_TH = ""
+
+        master_found = False
+
+        if tax_id_key:
+            master_matches = master_records.get(
+                tax_id_key, []
+            )
+
+            if master_matches:
+                master_found = True
+
+                SupplierName_Master_EN = (
+                    master_matches[0][
+                        "SupplierName_Master_EN"
+                    ]
+                )
+
+                SupplierName_Master_TH = (
+                    master_matches[0][
+                        "SupplierName_Master_TH"
+                    ]
+                )
+
+        if not master_found:
+            errors.append(
+                "VendorTaxId ไม่พบใน Master Supplier"
+            )
+
+            result_count["MASTER_NOT_FOUND"] += 1
+
+        # ----------------------------------------------------
+        # 4. Validate InvoiceDate
+        #    Excel vs TXT Field 3
+        # ----------------------------------------------------
+
+        excel_date = normalize_date(
+            get_excel_value("InvoiceDate")
+        )
+
+        txt_date = normalize_date(
+            txt_record["InvoiceDate"]
+        )
+
+        if excel_date != txt_date:
+            errors.append(
+                "InvoiceDate ไม่ตรงกัน"
+            )
+
+        # ----------------------------------------------------
+        # 5. Validate SupplierName
+        #    Master Column 4 or 5 vs TXT Field 20
+        #    Remove branch in parentheses first.
+        # ----------------------------------------------------
+
+        if master_found:
+
+            txt_supplier_name = normalize_text(
+                txt_record["SupplierName"]
+            )
+
+            master_en = normalize_text(
+                SupplierName_Master_EN
+            )
+
+            master_th = normalize_text(
+                SupplierName_Master_TH
+            )
+
+            valid_supplier_names = [
+                name for name in (
+                    master_en,
+                    master_th
+                )
+                if name
+            ]
+
+            if txt_supplier_name not in valid_supplier_names:
                 errors.append(
-                    "TaxInvoiceNo not found in Summary TXT "
-                    f"('{clean(invoice_no)}')"
-                )
-                counts["NOT FOUND"] += 1
-
-            else:
-                # Use the first H record for field comparisons.
-                record = candidates[0]
-
-                if len(candidates) > 1:
-                    errors.append(
-                        "TaxInvoiceNo duplicated in Summary TXT "
-                        f"({len(candidates)} H records)"
-                    )
-                    counts["DUPLICATE"] += 1
-
-                # Compare only the requested fields.
-                # L and T records are not used.
-                fields_to_compare = (
-                    "InvoiceDate",
-                    "SupplierName",
-                    "VendorBranch",
-                    "TotalAmount",
-                    "VATAmount",
-                    "AmountIncVat",
+                    "SupplierName ไม่ตรงกัน"
                 )
 
-                for field_name in fields_to_compare:
-                    excel_value = ws.cell(
-                        row=row_num,
-                        column=column_map[field_name]
-                    ).value
+        # ----------------------------------------------------
+        # 6. Validate VendorBranch
+        #    Excel vs parentheses in TXT Field 20
+        # ----------------------------------------------------
 
-                    mismatch = validate_value(
-                        excel_value,
-                        record[field_name],
-                        field_name
-                    )
+        excel_branch = normalize_branch(
+            get_excel_value("VendorBranch")
+        )
 
-                    if mismatch:
-                        errors.append(mismatch)
+        txt_branch = normalize_branch(
+            txt_record["VendorBranch"]
+        )
 
-                if errors and len(candidates) == 1:
-                    counts["MISMATCH"] += 1
+        if excel_branch != txt_branch:
+            errors.append(
+                "VendorBranch ไม่ตรงกัน"
+            )
 
-                elif not errors:
-                    counts["MATCH"] += 1
+        # ----------------------------------------------------
+        # 7. Validate TotalAmount
+        #    Excel vs TXT Field 16
+        # ----------------------------------------------------
 
-        # Write validation status to Emessage.
+        excel_total = normalize_amount(
+            get_excel_value("TotalAmount")
+        )
+
+        txt_total = normalize_amount(
+            txt_record["TotalAmount"]
+        )
+
+        if excel_total != txt_total:
+            errors.append(
+                "TotalAmount ไม่ตรงกัน"
+            )
+
+        # ----------------------------------------------------
+        # 8. Validate VATAmount
+        #    Excel vs TXT Field 17
+        # ----------------------------------------------------
+
+        excel_vat = normalize_amount(
+            get_excel_value("VATAmount")
+        )
+
+        txt_vat = normalize_amount(
+            txt_record["VATAmount"]
+        )
+
+        if excel_vat != txt_vat:
+            errors.append(
+                "VATAmount ไม่ตรงกัน"
+            )
+
+        # ----------------------------------------------------
+        # 9. Validate AmountIncVat
+        #    Excel vs TXT Field 14
+        # ----------------------------------------------------
+
+        excel_amount_inc_vat = normalize_amount(
+            get_excel_value("AmountIncVat")
+        )
+
+        txt_amount_inc_vat = normalize_amount(
+            txt_record["AmountIncVat"]
+        )
+
+        if excel_amount_inc_vat != txt_amount_inc_vat:
+            errors.append(
+                "AmountIncVat ไม่ตรงกัน"
+            )
+
+        # ----------------------------------------------------
+        # 10. Append all errors to Emessage
+        # ----------------------------------------------------
+
+        append_emessage(
+            emessage_cell,
+            errors
+        )
+
         if errors:
-            validation_message = (
-                f"{VALIDATION_PREFIX} FAIL - "
-                + " | ".join(errors)
+            result_count["FAIL"] += 1
+            print(
+                f"Row {row_number}: FAIL - "
+                + ", ".join(errors)
             )
         else:
-            validation_message = (
-                f"{VALIDATION_PREFIX} PASS"
+            result_count["PASS"] += 1
+            print(
+                f"Row {row_number}: PASS"
             )
 
-        all_messages = other_messages + [validation_message]
-        emessage_cell.value = "; ".join(all_messages)
+    # ========================================================
+    # SAVE OUTPUT
+    # ========================================================
 
-    # Save to a separate output file.
+    output_dir = os.path.dirname(output_path)
+
+    if output_dir:
+        os.makedirs(
+            output_dir,
+            exist_ok=True
+        )
+
     wb.save(output_path)
     wb.close()
 
-    print("\n===== Summary H-line validation result =====")
-    print(f"Excel input : {excel_path}")
-    print(f"TXT input   : {text_path}")
-    print(f"Excel output: {output_path}")
+    # ========================================================
+    # PRINT SUMMARY
+    # ========================================================
 
-    total_h_records = sum(
-        len(items) for items in report_records.values()
-    )
+    print("\n========== VALIDATION RESULT ==========")
+    print(f"PASS             : {result_count['PASS']}")
+    print(f"FAIL             : {result_count['FAIL']}")
+    print(f"TXT NOT FOUND    : {result_count['TXT_NOT_FOUND']}")
+    print(f"MASTER NOT FOUND : {result_count['MASTER_NOT_FOUND']}")
+    print(f"\nOutput: {output_path}")
 
-    print(f"H records in TXT: {total_h_records}")
 
-    for status, count in counts.items():
-        print(f"{status:14}: {count}")
-
+# ============================================================
+# MAIN
+# ============================================================
 
 if __name__ == "__main__":
-    validate_excel_against_summary(
+
+    validate_excel(
         EXCEL_PATH,
         TEXT_PATH,
+        MASTER_PATH,
         OUTPUT_EXCEL_PATH
     )
