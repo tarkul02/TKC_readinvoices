@@ -99,10 +99,28 @@ def get_paths(today_str, branch_email, process_name):
         today_str
     )
 
+    # -----------------------------
+    # Master Supplier Path
+    # -----------------------------
+    master_supplier_path = os.path.join(
+        MAIN_PATH,
+        "MasterSuplier",
+        "Master Vendor Name (MAT)_TH_ENG.xlsx"
+    )
+    # -----------------------------
+    # Matching Script Path
+    # -----------------------------
+    matching_script_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "Matching_TextFile.py"
+    )
+
     return {
         "input_folder": input_folder,
         "temp_folder": temp_folder,
         "output_excel": output_excel,
         "dest_folder": dest_folder,
         "report_txt_folder": report_txt_folder,
+        "master_supplier_path": master_supplier_path,
+        "matching_script_path": matching_script_path,
     }

@@ -3,28 +3,27 @@ import re
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, date
 from openpyxl import load_workbook
-
+from openpyxl.styles import PatternFill, Font
 
 # ============================================================
 # FILE PATHS
 # ============================================================
 
 EXCEL_PATH = (
-    r"C:\testTKC\OpenAI_Invoice_Processing_AP\INPUT\1100\All_Invoices.xlsx"
+    # r"C:\TKC\TKC_readinvoices\INPUT\Process3\0000\OutputExcel\text\Excel\OCR\All_Invoices.xlsx"
+    r"C:\TKC\TKC_readinvoices\INPUT\Process3\0000\OutputExcel\20261101_164630\All_Invoices.xlsx"
 )
 
 TEXT_PATH = (
-    r"C:\testTKC\OpenAI_Invoice_Processing_AP\INPUT\1100\summary invoice report_test.txt"
+    r"C:\TKC\TKC_readinvoices\INPUT\Process3\0000\summary invoice report_20260620.txt"
 )
 
 MASTER_PATH = (
-    r"C:\testTKC\OpenAI_Invoice_Processing_AP\MasterSuplier"
-    r"\Master Vendor Name (MAT)_TH_ENG.xlsx"
+    r"C:\TKC\TKC_readinvoices\MasterSuplier\Master Vendor Name (MAT)_TH_ENG.xlsx"
 )
 
 OUTPUT_EXCEL_PATH = (
-    r"C:\testTKC\OpenAI_Invoice_Processing_AP\INPUT\1100"
-    r"\OutputExcel\ocr_output_matched.xlsx"
+    r"C:\TKC\TKC_readinvoices\INPUT\Process3\0000\OutputExcel\ocr_output_matched_2.xlsx"
 )
 
 
@@ -113,7 +112,16 @@ def normalize_amount(value):
     except (InvalidOperation, ValueError):
         return None
 
-
+REQUIRED_FIELDS = [
+    "TaxInvoiceNo",
+    "InvoiceDate",
+    "TotalAmount",
+    "VATAmount",
+    "SupplierName",
+    "VendorTaxId",
+    "VendorBranch",
+    "PurchaseOrderNo",
+]
 # ============================================================
 # SUMMARY TXT FUNCTIONS
 # ============================================================
@@ -286,6 +294,140 @@ def append_emessage(cell, new_messages):
 
     cell.value = ",".join(messages)
 
+# ==========================================================
+# 🎨 Highlight Excel cells that have problems
+# ==========================================================
+def highlight_excel_errors(excel_path):
+    """
+    อ่าน Emessage ของแต่ละแถว แล้วทำสีช่องที่เกี่ยวข้องกับปัญหา
+
+    - Emessage ที่มีข้อความ -> ทำสี
+    - Required field ที่เป็น "<Field> is empty" -> ทำสี Field นั้น
+    - Amount error -> ทำสี TotalAmount, VATAmount, AmountIncVat
+    - Company address mismatch -> ทำสี CompanyAddress, CompanyBranch
+    - PO/Company branch mismatch -> ทำสี PurchaseOrderNo, CompanyBranch
+    - เอกสารสำเนา -> Emessage สีเหลือง (warning)
+    """
+
+    wb = load_workbook(excel_path)
+    ws = wb.active
+
+    error_fill = PatternFill(fill_type="solid", fgColor="FFEB9C")
+    error_font = Font(color="000000")
+
+    warning_fill = PatternFill(fill_type="solid", fgColor="FFEB9C")
+    warning_font = Font(color="000000")
+
+    column_map = {}
+    for cell in ws[1]:
+        if cell.value is not None:
+            column_map[str(cell.value).strip()] = cell.column
+
+    emessage_col = column_map.get("Emessage")
+    if not emessage_col:
+        print("⚠️ ไม่พบ Column Emessage → ข้ามการทำสี")
+        wb.save(excel_path)
+        return
+
+    def mark_cell(row_number, field_name, warning=False):
+        col_number = column_map.get(field_name)
+        if not col_number:
+            return
+
+        cell = ws.cell(row=row_number, column=col_number)
+        if warning:
+            cell.fill = warning_fill
+            cell.font = warning_font
+        else:
+            cell.fill = error_fill
+            cell.font = error_font
+
+    error_field_map = {
+        "Company address does not match": [
+            "CompanyAddress",
+            "CompanyBranch",
+        ],
+        "PO does not match Company branch": [
+            "PurchaseOrderNo",
+            "CompanyBranch",
+        ],
+        "Duplicate Amount Found": [
+            "TotalAmount",
+            "VATAmount",
+            "AmountIncVat",
+        ],
+        "Amount format invalid": [
+            "TotalAmount",
+            "VATAmount",
+            "AmountIncVat",
+        ],
+        "VATAmount format invalid": [
+            "TotalAmount",
+            "VATAmount",
+            "AmountIncVat",
+        ],
+        "กรุณาเช็ค Amount ทั้ง 3 ช่อง": [
+            "TotalAmount",
+            "VATAmount",
+            "AmountIncVat",
+        ],
+        # Matching Summary Report
+        "TaxInvoiceNo is NOT FOUND in Summary Report": [
+            "TaxInvoiceNo",
+        ],
+        "VendorTaxId NOT FOUND in Master Supplier": [
+            "VendorTaxId",
+        ],
+        "InvoiceDate NOT MATCHING": [
+            "InvoiceDate",
+        ],
+        "SupplierName NOT MATCHING": [
+            "SupplierName",
+        ],
+        "VendorBranch NOT MATCHING": [
+            "VendorBranch",
+        ],
+        "TotalAmount NOT MATCHING": [
+            "TotalAmount",
+        ],
+        "VATAmount NOT MATCHING": [
+            "VATAmount",
+        ],
+        "AmountIncVat NOT MATCHING": [
+            "AmountIncVat",
+        ],
+    }
+
+    for row_number in range(2, ws.max_row + 1):
+        emessage_cell = ws.cell(row=row_number, column=emessage_col)
+        emessage = str(emessage_cell.value or "").strip()
+
+        if not emessage:
+            continue
+
+        emessage_lower = emessage.casefold()
+
+        copy_warning_only = (
+            "เอกสารใบนี้เป็นสำเนา" in emessage
+            and " | " not in emessage
+        )
+
+        mark_cell(row_number, "Emessage", warning=copy_warning_only)
+
+        # Required Field Error เช่น VendorTaxId is empty
+        for field in REQUIRED_FIELDS:
+            required_error = f"{field} is empty".casefold()
+            if required_error in emessage_lower:
+                mark_cell(row_number, field)
+
+        # Error เฉพาะประเภท
+        for error_keyword, fields in error_field_map.items():
+            if error_keyword.casefold() in emessage_lower:
+                for field in fields:
+                    mark_cell(row_number, field)
+
+    wb.save(excel_path)
+    print("🎨 Highlight Error Cells completed")
 
 # ============================================================
 # VALIDATION FUNCTION
@@ -435,7 +577,7 @@ def validate_excel(
 
             append_emessage(
                 emessage_cell,
-                ["ไม่พบ"]
+                ["TaxInvoiceNo is NOT FOUND in Summary Report"]
             )
 
             result_count["FAIL"] += 1
@@ -486,7 +628,7 @@ def validate_excel(
 
         if not master_found:
             errors.append(
-                "VendorTaxId ไม่พบใน Master Supplier"
+                "VendorTaxId NOT FOUND in Master Supplier"
             )
 
             result_count["MASTER_NOT_FOUND"] += 1
@@ -506,7 +648,7 @@ def validate_excel(
 
         if excel_date != txt_date:
             errors.append(
-                "InvoiceDate ไม่ตรงกัน"
+                "InvoiceDate NOT MATCHING"
             )
 
         # ----------------------------------------------------
@@ -539,7 +681,7 @@ def validate_excel(
 
             if txt_supplier_name not in valid_supplier_names:
                 errors.append(
-                    "SupplierName ไม่ตรงกัน"
+                    "SupplierName NOT MATCHING"
                 )
 
         # ----------------------------------------------------
@@ -557,7 +699,7 @@ def validate_excel(
 
         if excel_branch != txt_branch:
             errors.append(
-                "VendorBranch ไม่ตรงกัน"
+                "VendorBranch NOT MATCHING"
             )
 
         # ----------------------------------------------------
@@ -575,7 +717,7 @@ def validate_excel(
 
         if excel_total != txt_total:
             errors.append(
-                "TotalAmount ไม่ตรงกัน"
+                "TotalAmount NOT MATCHING"
             )
 
         # ----------------------------------------------------
@@ -593,7 +735,7 @@ def validate_excel(
 
         if excel_vat != txt_vat:
             errors.append(
-                "VATAmount ไม่ตรงกัน"
+                "VATAmount NOT MATCHING"
             )
 
         # ----------------------------------------------------
@@ -611,7 +753,7 @@ def validate_excel(
 
         if excel_amount_inc_vat != txt_amount_inc_vat:
             errors.append(
-                "AmountIncVat ไม่ตรงกัน"
+                "AmountIncVat NOT MATCHING"
             )
 
         # ----------------------------------------------------
@@ -667,10 +809,31 @@ def validate_excel(
 # ============================================================
 
 if __name__ == "__main__":
+    import sys
+
+    # รับ path ทั้ง 4 ค่าเป็น parameter จาก 03_430000848; standalone ใช้ default ด้านบน
+    if len(sys.argv) == 5:
+        excel_path = sys.argv[1]
+        text_path = sys.argv[2]
+        master_path = sys.argv[3]
+        output_excel_path = sys.argv[4]
+    elif len(sys.argv) == 1:
+        excel_path = EXCEL_PATH
+        text_path = TEXT_PATH
+        master_path = MASTER_PATH
+        output_excel_path = OUTPUT_EXCEL_PATH
+    else:
+        raise SystemExit(
+            "Usage: python Matching_TextFile.py <excel_path> <text_path> <master_path> <output_excel_path>"
+        )
 
     validate_excel(
-        EXCEL_PATH,
-        TEXT_PATH,
-        MASTER_PATH,
-        OUTPUT_EXCEL_PATH
+        excel_path,
+        text_path,
+        master_path,
+        output_excel_path
     )
+
+# ต้องเป็นขั้นตอนสุดท้ายหลัง OCR และ Matching
+highlight_excel_errors(OUTPUT_EXCEL_PATH)
+

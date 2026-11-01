@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+import subprocess
 import io
 import re
 import json
@@ -45,213 +46,213 @@ branch_email = sys.argv[2]
 
 paths = get_paths(today_str, branch_email, "Process3")
 
+# Existing OCR paths (keep these as the source of truth when paths overlap)
 input_folder = paths["input_folder"]
 temp_folder = paths["temp_folder"]
 output_excel = paths["output_excel"]
 dest_folder = paths["dest_folder"]
 REPORT_TXT_FOLDER = paths["report_txt_folder"]
 
-# เก็บ Summary Invoice Report แยกตามรอบที่รัน โดยอ้างอิงโฟลเดอร์ Excel
-# ของรอบเดียวกับไฟล์ Invoice แทนการ fix ไว้ที่ file_test_1
-# เก็บ Summary Invoice Report ไว้ที่ Excel\Report
-REPORT_ARCHIVE_FOLDER = os.path.join(
-    os.path.dirname(os.path.dirname(output_excel)),
-    "Report"
+# Matching_TextFile configuration
+MATCHING_TEXT_FOLDER = paths["input_folder"]
+MATCHING_MASTER_PATH = paths["master_supplier_path"]
+MATCHING_OUTPUT_ROOT = os.path.join(
+    MATCHING_TEXT_FOLDER,
+    "OutputExcel"
 )
-REPORT_HT_COLUMNS = [
-    "ReportRecordID", "CompanyCode", "DocumentDate", "PostingDate",
-    "DocumentType", "InvoiceNo", "ReferenceCode", "Currency",
-    "HeaderField09", "HeaderField10", "HeaderField11", "HeaderDate",
-    "AmountIncVat_H", "AmountIncVat_H_Repeat", "TaxCode",
-    "TotalAmount_T", "VATAmount_T", "HeaderField18", "HeaderField19",
-    "SupplierName", "TotalAmount_T_Repeat", "VATAmount_T_Repeat",
-]
+MATCHING_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+MATCHING_OUTPUT_FOLDER = os.path.join(
+    MATCHING_OUTPUT_ROOT,
+    MATCHING_TIMESTAMP
+)
 
+# Function Matching_TextFile.py will use these paths to read the summary invoice report and master supplier file.
+MATCHING_SCRIPT = paths["matching_script_path"]
 
 def _report_clean(value):
     return str(value or "").strip().lstrip("\ufeff")
 
 
-def convert_report_ht_to_excel(report_folder):
-    """แปลง H/T เป็น Excel หากมี Report; หากไม่มีให้ข้ามและทำงานต่อ."""
-    if not os.path.isdir(report_folder):
-        print(
-            f"⚠️ ไม่พบโฟลเดอร์ Summary Invoice Report: {report_folder}"
-        )
-        print("⏭️ ข้ามขั้นตอน Summary Invoice Report และทำ OCR ต่อ")
-        return None
+# def convert_report_ht_to_excel(report_folder):
+#     """แปลง H/T เป็น Excel หากมี Report; หากไม่มีให้ข้ามและทำงานต่อ."""
+#     if not os.path.isdir(report_folder):
+#         print(
+#             f"⚠️ ไม่พบโฟลเดอร์ Summary Invoice Report: {report_folder}"
+#         )
+#         print("⏭️ ข้ามขั้นตอน Summary Invoice Report และทำ OCR ต่อ")
+#         return None
 
-    # 2. ตรวจสอบว่ามีไฟล์ TXT หรือไม่
-    txt_files = [
-        f for f in os.listdir(report_folder)
-        if f.lower().endswith(".txt")
-    ]
+#     # 2. ตรวจสอบว่ามีไฟล์ TXT หรือไม่
+#     txt_files = [
+#         f for f in os.listdir(report_folder)
+#         if f.lower().endswith(".txt")
+#     ]
 
-    if not txt_files:
-        print("⚠️ ไม่พบไฟล์ Report TXT — ข้ามขั้นตอน Report")
-        return None
+#     if not txt_files:
+#         print("⚠️ ไม่พบไฟล์ Report TXT — ข้ามขั้นตอน Report")
+#         return None
 
-    # 3. โค้ดเดิมสำหรับอ่านและแปลงไฟล์ H/T
-    # ให้วางโค้ดเดิมต่อจากตรงนี้
+#     # 3. โค้ดเดิมสำหรับอ่านและแปลงไฟล์ H/T
+#     # ให้วางโค้ดเดิมต่อจากตรงนี้
 
-    candidates = []
-    for filename in os.listdir(report_folder):
-        full_path = os.path.join(report_folder, filename)
-        if not os.path.isfile(full_path) or not filename.lower().endswith(".txt"):
-            continue
-        normalized_name = os.path.splitext(filename)[0].casefold().replace(" ", "_")
-        if normalized_name.startswith("summary") or (
-            "invoice" in normalized_name and "report" in normalized_name
-        ):
-            candidates.append(full_path)
+#     candidates = []
+#     for filename in os.listdir(report_folder):
+#         full_path = os.path.join(report_folder, filename)
+#         if not os.path.isfile(full_path) or not filename.lower().endswith(".txt"):
+#             continue
+#         normalized_name = os.path.splitext(filename)[0].casefold().replace(" ", "_")
+#         if normalized_name.startswith("summary") or (
+#             "invoice" in normalized_name and "report" in normalized_name
+#         ):
+#             candidates.append(full_path)
 
-    if not candidates:
-        raise RuntimeError(
-            f"ไม่พบไฟล์ Summary Invoice Report .txt ใน {report_folder}; หยุดก่อนเริ่ม OCR"
-        )
-    if len(candidates) != 1:
-        names = ", ".join(sorted(os.path.basename(p) for p in candidates))
-        raise RuntimeError(
-            f"พบไฟล์ Summary Invoice Report มากกว่า 1 ไฟล์: {names}; หยุดก่อนเริ่ม OCR"
-        )
+#     if not candidates:
+#         raise RuntimeError(
+#             f"ไม่พบไฟล์ Summary Invoice Report .txt ใน {report_folder}; หยุดก่อนเริ่ม OCR"
+#         )
+#     if len(candidates) != 1:
+#         names = ", ".join(sorted(os.path.basename(p) for p in candidates))
+#         raise RuntimeError(
+#             f"พบไฟล์ Summary Invoice Report มากกว่า 1 ไฟล์: {names}; หยุดก่อนเริ่ม OCR"
+#         )
 
-    txt_path = candidates[0]
-    headers, totals, errors, order = {}, {}, [], []
-    try:
-        with open(txt_path, "r", encoding="utf-8-sig", errors="replace") as report_file:
-            lines = report_file.read().splitlines()
-    except OSError as exc:
-        raise RuntimeError(f"อ่านไฟล์ TXT ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR") from exc
+#     txt_path = candidates[0]
+#     headers, totals, errors, order = {}, {}, [], []
+#     try:
+#         with open(txt_path, "r", encoding="utf-8-sig", errors="replace") as report_file:
+#             lines = report_file.read().splitlines()
+#     except OSError as exc:
+#         raise RuntimeError(f"อ่านไฟล์ TXT ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR") from exc
 
-    for line_no, line in enumerate(lines, 1):
-        if not line.strip():
-            continue
-        fields = [_report_clean(item) for item in line.split("|")]
-        record_type = fields[0][:1].upper() if fields and fields[0] else ""
-        if record_type not in ("H", "T"):
-            # L (line item) และ record ประเภทอื่นไม่ต้องส่งออก
-            continue
+#     for line_no, line in enumerate(lines, 1):
+#         if not line.strip():
+#             continue
+#         fields = [_report_clean(item) for item in line.split("|")]
+#         record_type = fields[0][:1].upper() if fields and fields[0] else ""
+#         if record_type not in ("H", "T"):
+#             # L (line item) และ record ประเภทอื่นไม่ต้องส่งออก
+#             continue
 
-        record_id = fields[0][1:].strip()
-        if not record_id or not record_id.isdigit():
-            errors.append(f"บรรทัด {line_no}: Record ID ของ {record_type} ไม่ถูกต้อง")
-            continue
+#         record_id = fields[0][1:].strip()
+#         if not record_id or not record_id.isdigit():
+#             errors.append(f"บรรทัด {line_no}: Record ID ของ {record_type} ไม่ถูกต้อง")
+#             continue
 
-        if record_type == "H":
-            if record_id in headers:
-                errors.append(f"บรรทัด {line_no}: พบ H Record ID ซ้ำ {record_id}")
-                continue
-            headers[record_id] = fields
-            order.append(record_id)
-            if len(fields) < 20:
-                errors.append(
-                    f"บรรทัด {line_no}: H Record ID {record_id} มี {len(fields)} fields; ต้องมีอย่างน้อย 20"
-                )
-        else:
-            if record_id in totals:
-                errors.append(f"บรรทัด {line_no}: พบ T Record ID ซ้ำ {record_id}")
-                continue
-            totals[record_id] = fields
-            if len(fields) < 4:
-                errors.append(
-                    f"บรรทัด {line_no}: T Record ID {record_id} มี {len(fields)} fields; ต้องมีอย่างน้อย 4"
-                )
+#         if record_type == "H":
+#             if record_id in headers:
+#                 errors.append(f"บรรทัด {line_no}: พบ H Record ID ซ้ำ {record_id}")
+#                 continue
+#             headers[record_id] = fields
+#             order.append(record_id)
+#             if len(fields) < 20:
+#                 errors.append(
+#                     f"บรรทัด {line_no}: H Record ID {record_id} มี {len(fields)} fields; ต้องมีอย่างน้อย 20"
+#                 )
+#         else:
+#             if record_id in totals:
+#                 errors.append(f"บรรทัด {line_no}: พบ T Record ID ซ้ำ {record_id}")
+#                 continue
+#             totals[record_id] = fields
+#             if len(fields) < 4:
+#                 errors.append(
+#                     f"บรรทัด {line_no}: T Record ID {record_id} มี {len(fields)} fields; ต้องมีอย่างน้อย 4"
+#                 )
 
-    if not headers:
-        errors.append("ไม่พบ H record ในไฟล์รายงาน")
-    for record_id in headers.keys() - totals.keys():
-        errors.append(f"ไม่พบ T record ที่จับคู่กับ H Record ID {record_id}")
-    for record_id in totals.keys() - headers.keys():
-        errors.append(f"T Record ID {record_id} ไม่มี H record ที่จับคู่กัน")
+#     if not headers:
+#         errors.append("ไม่พบ H record ในไฟล์รายงาน")
+#     for record_id in headers.keys() - totals.keys():
+#         errors.append(f"ไม่พบ T record ที่จับคู่กับ H Record ID {record_id}")
+#     for record_id in totals.keys() - headers.keys():
+#         errors.append(f"T Record ID {record_id} ไม่มี H record ที่จับคู่กัน")
 
-    if errors:
-        detail = "\n - ".join(errors[:30])
-        if len(errors) > 30:
-            detail += f"\n - และมีปัญหาเพิ่มเติมอีก {len(errors) - 30} รายการ"
-        raise RuntimeError("ตรวจสอบ Summary Invoice Report ไม่ผ่าน; หยุดก่อนเริ่ม OCR:\n - " + detail)
+#     if errors:
+#         detail = "\n - ".join(errors[:30])
+#         if len(errors) > 30:
+#             detail += f"\n - และมีปัญหาเพิ่มเติมอีก {len(errors) - 30} รายการ"
+#         raise RuntimeError("ตรวจสอบ Summary Invoice Report ไม่ผ่าน; หยุดก่อนเริ่ม OCR:\n - " + detail)
 
-    rows = []
-    for record_id in order:
-        h, t = headers[record_id], totals[record_id]
-        rows.append({
-            "ReportRecordID": record_id,
-            "CompanyCode": h[1], "DocumentDate": h[2], "PostingDate": h[3],
-            "DocumentType": h[4], "InvoiceNo": h[5], "ReferenceCode": h[6],
-            "Currency": h[7], "HeaderField09": h[8], "HeaderField10": h[9],
-            "HeaderField11": h[10], "HeaderDate": h[11],
-            "AmountIncVat_H": h[12], "AmountIncVat_H_Repeat": h[13],
-            "TaxCode": h[14], "TotalAmount_T": t[1], "VATAmount_T": t[3],
-            "HeaderField18": h[17], "HeaderField19": h[18],
-            "SupplierName": h[19], "TotalAmount_T_Repeat": t[2],
-            "VATAmount_T_Repeat": t[3],
-        })
+#     rows = []
+#     for record_id in order:
+#         h, t = headers[record_id], totals[record_id]
+#         rows.append({
+#             "ReportRecordID": record_id,
+#             "CompanyCode": h[1], "DocumentDate": h[2], "PostingDate": h[3],
+#             "DocumentType": h[4], "InvoiceNo": h[5], "ReferenceCode": h[6],
+#             "Currency": h[7], "HeaderField09": h[8], "HeaderField10": h[9],
+#             "HeaderField11": h[10], "HeaderDate": h[11],
+#             "AmountIncVat_H": h[12], "AmountIncVat_H_Repeat": h[13],
+#             "TaxCode": h[14], "TotalAmount_T": t[1], "VATAmount_T": t[3],
+#             "HeaderField18": h[17], "HeaderField19": h[18],
+#             "SupplierName": h[19], "TotalAmount_T_Repeat": t[2],
+#             "VATAmount_T_Repeat": t[3],
+#         })
 
-    # เก็บทั้ง TXT และ Excel ไว้ในโฟลเดอร์ Report เดียวกัน
-    try:
-        os.makedirs(REPORT_ARCHIVE_FOLDER, exist_ok=True)
-    except OSError as exc:
-        raise RuntimeError(
-            f"สร้างโฟลเดอร์ Report ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR"
-        ) from exc
+#     # เก็บทั้ง TXT และ Excel ไว้ในโฟลเดอร์ Report เดียวกัน
+#     try:
+#         os.makedirs(REPORT_ARCHIVE_FOLDER, exist_ok=True)
+#     except OSError as exc:
+#         raise RuntimeError(
+#             f"สร้างโฟลเดอร์ Report ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR"
+#         ) from exc
 
-    report_basename = os.path.splitext(os.path.basename(txt_path))[0]
-    output_path = os.path.join(REPORT_ARCHIVE_FOLDER, report_basename + ".xlsx")
-    archived_txt_path = os.path.join(REPORT_ARCHIVE_FOLDER, os.path.basename(txt_path))
-    if os.path.exists(output_path):
-        raise RuntimeError(
-            f"ไฟล์ Excel ปลายทางมีอยู่แล้ว จึงไม่เขียนทับ: {output_path}; หยุดก่อนเริ่ม OCR"
-        )
-    if os.path.exists(archived_txt_path):
-        raise RuntimeError(
-            f"ไฟล์ TXT ปลายทางมีอยู่แล้ว จึงไม่เขียนทับ: {archived_txt_path}; หยุดก่อนเริ่ม OCR"
-        )
+#     report_basename = os.path.splitext(os.path.basename(txt_path))[0]
+#     output_path = os.path.join(REPORT_ARCHIVE_FOLDER, report_basename + ".xlsx")
+#     archived_txt_path = os.path.join(REPORT_ARCHIVE_FOLDER, os.path.basename(txt_path))
+#     if os.path.exists(output_path):
+#         raise RuntimeError(
+#             f"ไฟล์ Excel ปลายทางมีอยู่แล้ว จึงไม่เขียนทับ: {output_path}; หยุดก่อนเริ่ม OCR"
+#         )
+#     if os.path.exists(archived_txt_path):
+#         raise RuntimeError(
+#             f"ไฟล์ TXT ปลายทางมีอยู่แล้ว จึงไม่เขียนทับ: {archived_txt_path}; หยุดก่อนเริ่ม OCR"
+#         )
 
-    try:
-        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            df = pd.DataFrame(rows, columns=REPORT_HT_COLUMNS)
-            df.to_excel(writer, index=False, sheet_name="Report_HT")
-            worksheet = writer.sheets["Report_HT"]
-            worksheet.freeze_panes = "A2"
-            worksheet.auto_filter.ref = worksheet.dimensions
-            for column_cells in worksheet.columns:
-                max_width = max(
-                    (len(str(cell.value)) if cell.value is not None else 0)
-                    for cell in column_cells
-                )
-                worksheet.column_dimensions[column_cells[0].column_letter].width = min(
-                    max(max_width + 2, 12), 40
-                )
-    except Exception as exc:
-        raise RuntimeError(
-            f"สร้าง Excel จาก {os.path.basename(txt_path)} ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR"
-        ) from exc
+#     try:
+#         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+#             df = pd.DataFrame(rows, columns=REPORT_HT_COLUMNS)
+#             df.to_excel(writer, index=False, sheet_name="Report_HT")
+#             worksheet = writer.sheets["Report_HT"]
+#             worksheet.freeze_panes = "A2"
+#             worksheet.auto_filter.ref = worksheet.dimensions
+#             for column_cells in worksheet.columns:
+#                 max_width = max(
+#                     (len(str(cell.value)) if cell.value is not None else 0)
+#                     for cell in column_cells
+#                 )
+#                 worksheet.column_dimensions[column_cells[0].column_letter].width = min(
+#                     max(max_width + 2, 12), 40
+#                 )
+#     except Exception as exc:
+#         raise RuntimeError(
+#             f"สร้าง Excel จาก {os.path.basename(txt_path)} ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR"
+#         ) from exc
 
-    print("\n================ Summary Invoice Report ================")
-    print(f"TXT ต้นฉบับ: {txt_path}")
-    print(f"Excel ที่สร้าง: {output_path}")
-    print(f"จำนวน Invoice (H/T): {len(rows)}")
+#     print("\n================ Summary Invoice Report ================")
+#     print(f"TXT ต้นฉบับ: {txt_path}")
+#     print(f"Excel ที่สร้าง: {output_path}")
+#     print(f"จำนวน Invoice (H/T): {len(rows)}")
 
-    # ย้ายไฟล์ TXT ต้นฉบับไปไว้คู่กับ Excel ในโฟลเดอร์ Report
-    # เนื้อหา TXT ไม่ถูกแก้ไข และตรวจสอบชื่อซ้ำก่อนย้ายเพื่อป้องกันการเขียนทับ
-    try:
-        shutil.move(txt_path, archived_txt_path)
-        print(f"ย้าย TXT ไปเก็บแล้ว: {archived_txt_path}")
-        print(f"เก็บ Excel ไว้ที่: {output_path}")
-    except Exception as exc:
-        raise RuntimeError(
-            f"สร้าง/ย้ายไฟล์ TXT ไปยังโฟลเดอร์ Report ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR"
-        ) from exc
+#     # ย้ายไฟล์ TXT ต้นฉบับไปไว้คู่กับ Excel ในโฟลเดอร์ Report
+#     # เนื้อหา TXT ไม่ถูกแก้ไข และตรวจสอบชื่อซ้ำก่อนย้ายเพื่อป้องกันการเขียนทับ
+#     try:
+#         shutil.move(txt_path, archived_txt_path)
+#         print(f"ย้าย TXT ไปเก็บแล้ว: {archived_txt_path}")
+#         print(f"เก็บ Excel ไว้ที่: {output_path}")
+#     except Exception as exc:
+#         raise RuntimeError(
+#             f"สร้าง/ย้ายไฟล์ TXT ไปยังโฟลเดอร์ Report ไม่สำเร็จ: {exc}; หยุดก่อนเริ่ม OCR"
+#         ) from exc
 
-    print("========================================================\n")
-    return output_path
+#     print("========================================================\n")
+#     return output_path
 
 
 # ต้องแปลงและตรวจสอบรายงานให้สำเร็จก่อนสร้าง Azure client/เริ่ม OCR
-try:
-    report_excel_path = convert_report_ht_to_excel(REPORT_TXT_FOLDER)
-except Exception as report_error:
-    print(f"❌ Summary Invoice Report Error: {report_error}")
-    sys.exit(1)
+# try:
+#     report_excel_path = convert_report_ht_to_excel(REPORT_TXT_FOLDER)
+# except Exception as report_error:
+#     print(f"❌ Summary Invoice Report Error: {report_error}")
+#     sys.exit(1)
 
 # ====================================================
 # 🔐 Azure
@@ -4516,16 +4517,16 @@ for row in all_data:
         if value is None or str(value).strip() == "":
             errors.append(f"{field} is empty")
 
-    try:
-        total_amount = normalize_number(row.get("TotalAmount", 0))
-        vat_amount = normalize_number(row.get("VATAmount", 0))
+    # try:
+    #     total_amount = normalize_number(row.get("TotalAmount", 0))
+    #     vat_amount = normalize_number(row.get("VATAmount", 0))
 
-        expected_vat = round(total_amount * 0.07, 2)
+    #     expected_vat = round(total_amount * 0.07, 2)
 
-        if abs(vat_amount - expected_vat) > 0.01:
-            errors.append(
-                "กรุณาเช็ค Amount ทั้ง 3 ช่อง"
-            )
+    #     if abs(vat_amount - expected_vat) > 0.01:
+    #         errors.append(
+    #             "กรุณาเช็ค Amount ทั้ง 3 ช่อง"
+    #         )
 
     except Exception:
         errors.append("VATAmount format invalid")
@@ -4542,261 +4543,89 @@ df = df.reindex(columns=EXCEL_COLUMNS)
 
 df.to_excel(output_excel, index=False)
 
-
-
 # ==========================================================
-# 🔎 Match OCR InvoiceNo with Summary Invoice Report (H/L/T)
 # ==========================================================
-def normalize_invoice_key(value):
-    """Normalize invoice number for exact matching; does not alter saved OCR value."""
-    return re.sub(r"\s+", "", str(value or "").strip()).casefold()
+# 🔎 Validate OCR Excel with Matching_TextFile
+# ==========================================================
 
+# เลือกไฟล์ TXT ที่แก้ไขล่าสุดจาก INPUT\1100
+matching_txt_files = [
+    os.path.join(MATCHING_TEXT_FOLDER, filename)
+    for filename in os.listdir(MATCHING_TEXT_FOLDER)
+    if filename.lower().endswith(".txt")
+    and os.path.isfile(os.path.join(MATCHING_TEXT_FOLDER, filename))
+]
 
-def parse_summary_report_htl(txt_path):
-    """
-    แบ่ง Summary Invoice Report เป็นชุด H ... L ... T
-    ใช้ Invoice No. จาก H field index 5 (field ที่ 6)
-    คืน dict โดย key คือ Invoice No. ที่ normalize แล้ว
-    """
-    records = {}
-    current = None
-
-    with open(txt_path, "r", encoding="utf-8-sig", errors="replace") as report_file:
-        for line_no, raw_line in enumerate(report_file, 1):
-            line = raw_line.rstrip("\r\n")
-            if not line.strip():
-                continue
-
-            fields = [_report_clean(item) for item in line.split("|")]
-            record_type = fields[0][:1].upper() if fields and fields[0] else ""
-
-            if record_type == "H":
-                # ถ้าชุดก่อนหน้าไม่มี T ก็ยังเก็บไว้ให้ตรวจสอบได้
-                current = {
-                    "H": line,
-                    "L": [],
-                    "T": "",
-                    "InvoiceNo": fields[5] if len(fields) > 5 else "",
-                    "RecordID": fields[0][1:] if fields else "",
-                    "StartLine": line_no,
-                }
-            elif record_type == "L" and current is not None:
-                current["L"].append(line)
-            elif record_type == "T" and current is not None:
-                current["T"] = line
-                key = normalize_invoice_key(current["InvoiceNo"])
-                if key:
-                    # หาก Invoice No. ซ้ำ จะเก็บหลายชุดไว้ ไม่เลือกทับเงียบ ๆ
-                    records.setdefault(key, []).append(current)
-                current = None
-
-    # เก็บชุด H/L ที่ไม่มี T ไว้ด้วย เพื่อไม่ให้ข้อมูลหายจากผลตรวจสอบ
-    if current is not None:
-        key = normalize_invoice_key(current["InvoiceNo"])
-        if key:
-            records.setdefault(key, []).append(current)
-
-    return records
-
-
-def match_ocr_excel_with_summary_report(excel_path, report_txt_path):
-    """
-    เพิ่มคอลัมน์ผลจับคู่ลงใน Excel OCR โดยจับคู่ TaxInvoiceNo กับ H field 6
-    และดึงบรรทัด H, L ทั้งหมด และ T ของชุดที่ตรงกัน
-    """
-    if not report_txt_path or not os.path.isfile(report_txt_path):
-        print(f"⚠️ ไม่พบ Summary TXT สำหรับเทียบข้อมูล: {report_txt_path} — ข้ามการเทียบ")
-        return
-
-    report_records = parse_summary_report_htl(report_txt_path)
-    wb = load_workbook(excel_path)
-    ws = wb.active
-
-    column_map = {
-        str(cell.value).strip(): cell.column
-        for cell in ws[1]
-        if cell.value is not None
-    }
-    invoice_col = column_map.get("TaxInvoiceNo")
-    if not invoice_col:
-        wb.close()
-        raise RuntimeError("ไม่พบคอลัมน์ TaxInvoiceNo ใน Excel OCR")
-
-    result_columns = [
-        "ReportMatchStatus",
-        "ReportRecordID",
-        "ReportInvoiceNo",
-        "ReportH",
-        "ReportL",
-        "ReportT",
-    ]
-    for name in result_columns:
-        if name not in column_map:
-            ws.cell(row=1, column=ws.max_column + 1, value=name)
-            column_map[name] = ws.max_column
-
-    matched = not_found = duplicates = 0
-    for row_num in range(2, ws.max_row + 1):
-        invoice_no = ws.cell(row=row_num, column=invoice_col).value
-        key = normalize_invoice_key(invoice_no)
-        candidates = report_records.get(key, []) if key else []
-
-        if not candidates:
-            status = "NOT FOUND"
-            record_id = report_invoice = h_line = l_lines = t_line = ""
-            not_found += 1
-        else:
-            # กรณีซ้ำ ดึงชุดแรกไว้ก่อน แต่ระบุ DUPLICATE เพื่อให้ตรวจสอบ
-            record = candidates[0]
-            status = "MATCH" if len(candidates) == 1 and record.get("T") else (
-                "DUPLICATE" if len(candidates) > 1 else "MATCH - T MISSING"
-            )
-            record_id = record.get("RecordID", "")
-            report_invoice = record.get("InvoiceNo", "")
-            h_line = record.get("H", "")
-            l_lines = "\n".join(record.get("L", []))
-            t_line = record.get("T", "")
-            matched += 1
-            if len(candidates) > 1:
-                duplicates += 1
-
-        values = [status, record_id, report_invoice, h_line, l_lines, t_line]
-        for name, value in zip(result_columns, values):
-            ws.cell(row=row_num, column=column_map[name], value=value)
-
-    # ปรับความกว้างให้คอลัมน์ใหม่อ่านง่าย โดยจำกัดความกว้างของ raw lines
-    for name in result_columns:
-        col = column_map[name]
-        ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = (
-            18 if name in ("ReportMatchStatus", "ReportRecordID", "ReportInvoiceNo")
-            else 45
-        )
-    wb.save(excel_path)
-    wb.close()
-    print(
-        "🔎 Summary Invoice matching completed: "
-        f"MATCH/duplicate={matched}, NOT FOUND={not_found}, duplicate invoice keys={duplicates}"
+if not matching_txt_files:
+    raise FileNotFoundError(
+        f"ไม่พบไฟล์ .txt ในโฟลเดอร์: {MATCHING_TEXT_FOLDER}"
     )
 
-
-# ==========================================================
-# 🎨 Highlight Excel cells that have problems
-# ==========================================================
-def highlight_excel_errors(excel_path):
-    """
-    อ่าน Emessage ของแต่ละแถว แล้วทำสีช่องที่เกี่ยวข้องกับปัญหา
-
-    - Emessage ที่มีข้อความ -> ทำสี
-    - Required field ที่เป็น "<Field> is empty" -> ทำสี Field นั้น
-    - Amount error -> ทำสี TotalAmount, VATAmount, AmountIncVat
-    - Company address mismatch -> ทำสี CompanyAddress, CompanyBranch
-    - PO/Company branch mismatch -> ทำสี PurchaseOrderNo, CompanyBranch
-    - เอกสารสำเนา -> Emessage สีเหลือง (warning)
-    """
-
-    wb = load_workbook(excel_path)
-    ws = wb.active
-
-    error_fill = PatternFill(fill_type="solid", fgColor="FFEB9C")
-    error_font = Font(color="000000")
-
-    warning_fill = PatternFill(fill_type="solid", fgColor="FFEB9C")
-    warning_font = Font(color="000000")
-
-    column_map = {}
-    for cell in ws[1]:
-        if cell.value is not None:
-            column_map[str(cell.value).strip()] = cell.column
-
-    emessage_col = column_map.get("Emessage")
-    if not emessage_col:
-        print("⚠️ ไม่พบ Column Emessage → ข้ามการทำสี")
-        wb.save(excel_path)
-        return
-
-    def mark_cell(row_number, field_name, warning=False):
-        col_number = column_map.get(field_name)
-        if not col_number:
-            return
-
-        cell = ws.cell(row=row_number, column=col_number)
-        if warning:
-            cell.fill = warning_fill
-            cell.font = warning_font
-        else:
-            cell.fill = error_fill
-            cell.font = error_font
-
-    error_field_map = {
-        "Company address does not match": [
-            "CompanyAddress",
-            "CompanyBranch",
-        ],
-        "PO does not match Company branch": [
-            "PurchaseOrderNo",
-            "CompanyBranch",
-        ],
-        "Duplicate Amount Found": [
-            "TotalAmount",
-            "VATAmount",
-            "AmountIncVat",
-        ],
-        "Amount format invalid": [
-            "TotalAmount",
-            "VATAmount",
-            "AmountIncVat",
-        ],
-        "VATAmount format invalid": [
-            "TotalAmount",
-            "VATAmount",
-            "AmountIncVat",
-        ],
-        "กรุณาเช็ค Amount ทั้ง 3 ช่อง": [
-            "TotalAmount",
-            "VATAmount",
-            "AmountIncVat",
-        ],
-    }
-
-    for row_number in range(2, ws.max_row + 1):
-        emessage_cell = ws.cell(row=row_number, column=emessage_col)
-        emessage = str(emessage_cell.value or "").strip()
-
-        if not emessage:
-            continue
-
-        emessage_lower = emessage.casefold()
-
-        copy_warning_only = (
-            "เอกสารใบนี้เป็นสำเนา" in emessage
-            and " | " not in emessage
-        )
-
-        mark_cell(row_number, "Emessage", warning=copy_warning_only)
-
-        # Required Field Error เช่น VendorTaxId is empty
-        for field in REQUIRED_FIELDS:
-            required_error = f"{field} is empty".casefold()
-            if required_error in emessage_lower:
-                mark_cell(row_number, field)
-
-        # Error เฉพาะประเภท
-        for error_keyword, fields in error_field_map.items():
-            if error_keyword.casefold() in emessage_lower:
-                for field in fields:
-                    mark_cell(row_number, field)
-
-    wb.save(excel_path)
-    print("🎨 Highlight Error Cells completed")
-
-
-# เทียบ TaxInvoiceNo ใน Excel OCR กับ Summary Invoice Report TXT ของรอบเดียวกัน
-summary_report_txt_path = (
-    os.path.splitext(report_excel_path)[0] + ".txt"
-    if report_excel_path else None
+MATCHING_TEXT_PATH = max(
+    matching_txt_files,
+    key=os.path.getmtime
 )
-match_ocr_excel_with_summary_report(output_excel, summary_report_txt_path)
 
-highlight_excel_errors(output_excel)
+if not os.path.isfile(MATCHING_SCRIPT):
+    raise FileNotFoundError(
+        f"ไม่พบ Matching_TextFile.py: {MATCHING_SCRIPT}"
+    )
 
-print(f"\n✅ Done. All invoices saved to {output_excel}")
+if not os.path.isfile(MATCHING_MASTER_PATH):
+    raise FileNotFoundError(
+        f"ไม่พบ Master Supplier: {MATCHING_MASTER_PATH}"
+    )
+
+# เก็บไฟล์ผลลัพธ์ของรอบนี้ไว้ในโฟลเดอร์เดียวกัน
+os.makedirs(MATCHING_OUTPUT_FOLDER, exist_ok=True)
+
+# คัดลอกไฟล์ OCR Excel เข้าโฟลเดอร์รอบปัจจุบัน
+MATCHING_INPUT_EXCEL = os.path.join(
+    MATCHING_OUTPUT_FOLDER,
+    os.path.basename(output_excel)
+)
+if os.path.abspath(output_excel) != os.path.abspath(MATCHING_INPUT_EXCEL):
+    shutil.copy2(output_excel, MATCHING_INPUT_EXCEL)
+
+# คัดลอก TXT ต้นทางไว้เป็นหลักฐานของรอบที่ประมวลผล
+MATCHING_ARCHIVE_TEXT = os.path.join(
+    MATCHING_OUTPUT_FOLDER,
+    os.path.basename(MATCHING_TEXT_PATH)
+)
+if os.path.abspath(MATCHING_TEXT_PATH) != os.path.abspath(MATCHING_ARCHIVE_TEXT):
+    shutil.copy2(MATCHING_TEXT_PATH, MATCHING_ARCHIVE_TEXT)
+
+MATCHING_OUTPUT_EXCEL = os.path.join(
+    MATCHING_OUTPUT_FOLDER,
+    os.path.splitext(os.path.basename(output_excel))[0]
+    + "_matched.xlsx"
+)
+
+print("\n🔎 Starting Matching_TextFile validation...")
+print(f"Excel input : {MATCHING_INPUT_EXCEL}")
+print(f"TXT input   : {MATCHING_TEXT_PATH}")
+print(f"Master      : {MATCHING_MASTER_PATH}")
+print(f"Output      : {MATCHING_OUTPUT_EXCEL}")
+
+# ส่ง path ทั้ง 4 ค่าให้ Matching_TextFile ทำงานต่อ
+subprocess.run(
+    [
+        sys.executable,
+        MATCHING_SCRIPT,
+        MATCHING_INPUT_EXCEL,
+        MATCHING_ARCHIVE_TEXT,
+        MATCHING_MASTER_PATH,
+        MATCHING_OUTPUT_EXCEL,
+    ],
+    check=True
+)
+
+if not os.path.isfile(MATCHING_OUTPUT_EXCEL):
+    raise FileNotFoundError(
+        f"Matching did not create output Excel: {MATCHING_OUTPUT_EXCEL}"
+    )
+
+print(f"\n✅ Matching completed. Final Excel: {MATCHING_OUTPUT_EXCEL}")
+
+# ต้องเป็นขั้นตอนสุดท้ายหลัง OCR และ Matching
+highlight_excel_errors(MATCHING_OUTPUT_EXCEL)
