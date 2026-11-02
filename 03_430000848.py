@@ -1817,7 +1817,7 @@ def build_ocr_cache(invoices):
     จุดประสงค์:
     - ลดการวน invoices.pages / invoices.tables ซ้ำหลายรอบ
     - ไม่เปลี่ยนข้อมูลที่ใช้ในการ extract จึงคง logic/accuracy เดิม
-    - Azure ยังคงเรียก prebuilt-invoice และ prebuilt-layout เหมือนเดิม
+    - Azure เรียกเฉพาะ prebuilt-invoice; ไม่เรียก prebuilt-layout
     """
     lines = get_all_lines(invoices)
     full_text = "\n".join(lines)
@@ -2588,556 +2588,350 @@ def clean_company_name(name):
 
     return name
 
-def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None, vendor_tax_id="", supplier_name=""):
+# ============================================================
+# VendorBranch diagnostics (local log only; no additional AI calls)
+# Set to False after troubleshooting.
+# ============================================================
+DEBUG_VENDOR_BRANCH = True
+print(f'📌 VendorBranch patched script: {os.path.abspath(__file__)} | version 2026-11-02-branch-v4-nifco')
+
+def vendor_branch_debug(event, **details):
+    if not DEBUG_VENDOR_BRANCH:
+        return
+    try:
+        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'DebugVendorBranch')
+        os.makedirs(log_dir, exist_ok=True)
+        payload = {'timestamp': datetime.now().isoformat(timespec='seconds'), 'event': event, **details}
+        with open(os.path.join(log_dir, 'vendor_branch_debug.jsonl'), 'a', encoding='utf-8') as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, default=str) + '\n')
+        print(f'[VENDOR DEBUG] {event}')
+    except Exception as exc:
+        print(f'⚠️ VendorBranch debug logging failed: {exc}')
+
+def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None,
+                          vendor_tax_id="", supplier_name="", pdf_path=None):
+    """Resolve the *seller's* issuing branch from ONE prebuilt-invoice response.
+
+    A vendor's directory of offices is not proof of which office issued an invoice.
+    Local PDF pixel inspection (when available) is NOT an Azure/API request.
     """
-    ดึง VendorBranch แบบ Vendor-only และรองรับเอกสารที่พิมพ์รายการหลายสาขา
-
-    Priority:
-    1) selection mark / checkbox ที่ถูกเลือกในส่วน Vendor -> branch ของใบนั้น (สูงสุด)
-    2) issued by / invoice issuer branch
-    3) SupplierName / Vendor header / VendorTaxId fallback
-    4) ถ้าไม่มีหลักฐานที่ชัดเจน -> ""
-
-    กฎสำคัญ:
-    - Head Office / สำนักงานใหญ่ -> "00000"
-    - Branch 00001 -> "00001", 00002 -> "00002", ...
-    - ห้ามนำ CustomerBranch / CompanyBranch_invoice มาแทน VendorBranch
-    - ใช้ข้อมูลจาก prebuilt-invoice รอบเดิม ไม่ยิง Azure เพิ่ม
-    """
-    lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
-    lines = [re.sub(r"\s+", " ", str(x or "")).strip() for x in lines]
-    lines = [x for x in lines if x]
-
     vendor_tax_id = clean_tax_id(vendor_tax_id)
+    customer_ids = {clean_tax_id(x) for x in EXCLUDE_TAX_IDS if clean_tax_id(x)}
+    head_re = re.compile(r"สำนักงานใหญ่|HEAD\s*OFFICE|HEADOFFICE", re.I)
+    number_re = re.compile(r"(?:สาขา(?:ที่|เลขที่)?|BRANCH\s*(?:NO\.?|NUMBER|CODE|ID)?)\s*[:：#-]?\s*(\d{1,5})", re.I)
+    issuer_re = re.compile(r"ออกโดย|สาขาที่ออก|สาขาผู้ออก|ISSUED\s+BY", re.I)
+    buyer_re = re.compile(r"\b(?:CUSTOMER|BILL\s+TO|SHIP\s+TO|SOLD\s+TO|ACCOUNT\s+TO|BUYER)\b|ชื่อลูกค้า|ชื่อผู้ซื้อ|ผู้ซื้อ|รหัสลูกค้า", re.I)
+    tick_re = re.compile(r"☑|☒|✓|✔|\[\s*[xX✓✔]\s*\]|\(\s*[xX✓✔]\s*\)")
 
-    customer_tax_ids = {
-        clean_tax_id(x)
-        for x in EXCLUDE_TAX_IDS
-        if clean_tax_id(x)
-    }
+    def bounds(obj):
+        pts = []
+        polygon = getattr(obj, 'polygon', None) or []
+        if polygon and isinstance(polygon[0], (int, float)):
+            polygon = list(zip(polygon[::2], polygon[1::2]))
+        for pt in polygon:
+            try:
+                pts.append((float(pt.x), float(pt.y)) if hasattr(pt, 'x')
+                           else (float(pt[0]), float(pt[1])))
+            except (TypeError, ValueError, IndexError):
+                pass
+        if not pts:
+            return None
+        return min(x for x, y in pts), min(y for x, y in pts), max(x for x, y in pts), max(y for x, y in pts)
 
-    head_office_pattern = re.compile(
-        r"สาขา\s*สำนักงานใหญ่|สำนักงานใหญ่|HEAD\s*OFFICE|HEADOFFICE",
-        re.IGNORECASE,
-    )
+    def parse_options(text):
+        result = []
+        if head_re.search(text):
+            result.append('00000')
+        for m in number_re.finditer(text):
+            val = m.group(1).zfill(5)
+            if val not in result:
+                result.append(val)
+        return result
 
-    # Vendor-only branch patterns จาก config
-    branch_patterns = [
-        re.compile(pattern, re.IGNORECASE)
-        for pattern in VENDOR_BRANCH_PATTERNS
-    ]
+    pages = list(getattr(invoices, 'pages', []) or [])
+    rows = []
+    for pi, page in enumerate(pages):
+        for line in (getattr(page, 'lines', []) or []):
+            txt = re.sub(r'\s+', ' ', str(getattr(line, 'content', '') or '')).strip()
+            if txt:
+                rows.append((pi, txt, bounds(line)))
+    if not rows:
+        rows = [(0, str(t).strip(), None) for t in (ocr_cache or {}).get('lines', []) if str(t).strip()]
+    vendor_branch_debug('OCR_ROWS', pdf_path=str(pdf_path or ''), vendor_tax_id=vendor_tax_id, supplier_name=supplier_name, rows=[{'page': pi+1, 'text': txt, 'bounds': rect} for pi, txt, rect in rows])
+    if not rows:
+        vendor_branch_debug('NO_OCR_ROWS', pdf_path=str(pdf_path or ''))
+        return ''
 
-    customer_zone_patterns = [
-        re.compile(r"^\s*SOLD\s+TO\b", re.IGNORECASE),
-        re.compile(r"^\s*BILL\s+TO\b", re.IGNORECASE),
-        re.compile(r"^\s*SHIP\s+TO\b", re.IGNORECASE),
-        re.compile(r"^\s*PAYER\b", re.IGNORECASE),
-        re.compile(r"^\s*CUSTOMER\b", re.IGNORECASE),
-        re.compile(r"^\s*CLIENT(?:\s*/\s*ADDRESS)?\b", re.IGNORECASE),
-        re.compile(r"^\s*ACCOUNT\s+TO\b", re.IGNORECASE),
-        re.compile(r"^\s*INVOICE\s+TO\b", re.IGNORECASE),
-        re.compile(r"^\s*ส่งให้\s*INVOICE\s+TO\b", re.IGNORECASE),
-        re.compile(r"ชื่อ.*ลูกค้า", re.IGNORECASE),
-        re.compile(r"ชื่อผู้ซื้อ|ผู้ซื้อ", re.IGNORECASE),
-    ]
+    # Seller tax-registration footer: e.g. UNION NIFCO's
+    # "สำนักงานใหญ่ TAX ID : 0105531086805" near the bottom of the page.
+    # The footer is OUTSIDE the header/vendor-zone used by generic detection.
+    # Match the seller's own 13-digit Tax ID on the SAME line as head-office,
+    # never a customer Tax ID or a generic "HEAD OFFICE" elsewhere.
+    if re.fullmatch(r"\d{13}", vendor_tax_id) and vendor_tax_id not in customer_ids:
+        footer_candidates = []
+        for pi, txt, rect in rows:
+            if not head_re.search(txt):
+                continue
+            digits = re.sub(r"\D", "", txt)
+            if vendor_tax_id not in digits:
+                continue
+            if any(cid in digits for cid in customer_ids):
+                continue
+            if re.search(r"(?:BRANCH|สาขา(?:ที่|เลขที่)?)\s*[:：#-]?\s*\d{1,5}", txt, re.I):
+                continue
+            footer_candidates.append({'page': pi + 1, 'text': txt, 'bounds': rect})
+        if footer_candidates:
+            vendor_branch_debug('SELLER_TAX_ID_HEAD_OFFICE',
+                                pdf_path=str(pdf_path or ''),
+                                vendor_tax_id=vendor_tax_id,
+                                matches=footer_candidates,
+                                result='00000')
+            print('✅ VendorBranch seller Tax ID + Head Office: 00000')
+            return '00000'
 
-    def contains_customer_tax_id(text):
+    def buyer_tax(text):
         digits = clean_tax_id(text)
-        return any(tax_id and tax_id in digits for tax_id in customer_tax_ids)
+        return any(t in digits for t in customer_ids)
 
-    def find_numeric_branch(text):
-        for pattern in branch_patterns:
-            m = pattern.search(text)
-            if m:
-                return m.group(1).zfill(5)[-5:]
-        return ""
-
-    def branch_from_text(text):
-        if head_office_pattern.search(text):
-            return "00000"
-        return find_numeric_branch(text)
-
-    # ==========================================================
-    # Vendor-only helper: SupplierName / VendorTaxId anchors
-    # ห้ามใช้ CustomerBranch / CompanyBranch_invoice เป็น fallback
-    # ==========================================================
-    supplier_name_clean = re.sub(r"\s+", " ", str(supplier_name or "")).strip()
-
-    def normalize_for_match(text):
-        return re.sub(r"[^A-Z0-9ก-๙]+", "", str(text or "").upper())
-
-    def find_supplier_anchor():
-        if not supplier_name_clean:
-            return None
-        target = normalize_for_match(supplier_name_clean)
-        if not target:
-            return None
-        # ใช้ชิ้นต้นของชื่อเพื่อทนต่อ OCR ที่ตัด (HEAD OFFICE) ออก
-        target_short = target[:max(12, min(len(target), 36))]
-        for idx, line in enumerate(lines):
-            candidate = normalize_for_match(line)
-            if target in candidate or candidate in target or (target_short and target_short in candidate):
-                return idx
-        return None
-
-    def polygon_center(obj):
-        """คืนค่า center (x, y) ของ polygon จาก Azure object ถ้ามี"""
-        poly = getattr(obj, "polygon", None)
-        if not poly:
-            return None
-        xs, ys = [], []
-        try:
-            for p in poly:
-                if hasattr(p, "x") and hasattr(p, "y"):
-                    xs.append(float(p.x)); ys.append(float(p.y))
-                elif isinstance(p, (list, tuple)) and len(p) >= 2:
-                    xs.append(float(p[0])); ys.append(float(p[1]))
-        except Exception:
-            return None
-        if not xs:
-            return None
-        return (sum(xs) / len(xs), sum(ys) / len(ys))
-
-    # ==========================================================
-    # 0) SELECTED CHECKBOX / SELECTION MARK (Priority สูงสุดจริง)
-    #    ถ้ามีการติ๊กเลือกสาขา ให้เชื่อค่าที่ถูกเลือกก่อน logic อื่นทั้งหมด
-    #    ตัวอย่าง:
-    #       ☑ สำนักงานใหญ่       -> 00000
-    #       ☑ สาขาที่ 00001      -> 00001
-    #       ☑ Branch No. 00002   -> 00002
-    #
-    #    IMPORTANT:
-    #    - ตรวจเฉพาะ Vendor zone ก่อน CustomerTaxID
-    #    - ไม่ใช้ CustomerBranch / CompanyBranch_invoice
-    #    - ใช้ selection_marks จาก prebuilt-invoice รอบเดิม ไม่ยิง Azure เพิ่ม
-    # ==========================================================
-    try:
-        for page in getattr(invoices, "pages", []) or []:
-            page_lines = getattr(page, "lines", []) or []
-            selection_marks = getattr(page, "selection_marks", []) or []
-
-            # -------- selected marks ที่ Azure ตรวจพบ --------
-            selected_marks = []
-            for mark in selection_marks:
-                state = str(getattr(mark, "state", "") or "").lower()
-                if "selected" in state and "unselected" not in state:
-                    center = polygon_center(mark)
-                    if center:
-                        selected_marks.append(center)
-
-            candidates = []
-            customer_started = False
-
-            for line in page_lines:
-                text = re.sub(
-                    r"\s+", " ", str(getattr(line, "content", "") or "")
-                ).strip()
-                if not text:
-                    continue
-
-                # CustomerTaxID = hard boundary: หลังจากนี้ห้าม VendorBranch ใช้
-                if contains_customer_tax_id(text):
-                    customer_started = True
-
-                if customer_started:
-                    continue
-
-                branch = branch_from_text(text)
-                if not branch:
-                    continue
-
-                center = polygon_center(line)
-                if center:
-                    candidates.append((branch, text, center))
-
-                # OCR บางใบอ่านเครื่องหมาย checkbox เป็นตัวอักษรแทน selection_mark
-                # รองรับ ☑ / ✓ / ✔ / [x] / [X]
-                if re.search(r"(?:☑|✓|✔|\[\s*[xX✓✔]\s*\])", text):
-                    print(f"✅ VendorBranch from CHECKED TEXT -> {branch} | {text}")
-                    return branch
-
-            # จับ selected mark กับบรรทัด Branch ที่อยู่ใกล้ที่สุด
-            best = None
-            for mx, my in selected_marks:
-                for branch, text, (lx, ly) in candidates:
-                    dy = abs(my - ly)
-                    dx = abs(mx - lx)
-
-                    # checkbox มักอยู่ซ้ายของข้อความ branch ในบรรทัดเดียวกัน
-                    # ให้ vertical distance สำคัญกว่า horizontal distance มาก
-                    score = (dy * 12.0) + (dx * 0.35)
-
-                    if best is None or score < best[0]:
-                        best = (score, dy, dx, branch, text)
-
-            # จำกัด dy เพื่อไม่จับ checkbox จากส่วนอื่นของเอกสาร
-            if best is not None and best[1] <= 0.40:
-                print(
-                    f"✅ VendorBranch from SELECTED CHECKBOX -> {best[3]} "
-                    f"| dy={best[1]:.3f} dx={best[2]:.3f} | {best[4]}"
-                )
-                return best[3]
-
-    except Exception as e:
-        print(f"⚠️ VendorBranch selected-checkbox check skipped: {e}")
-
-    # ==========================================================
-    # 0A) Explicit Invoice Issuer / ออกโดย (Priority สูงสุด)
-    #     ตัวอย่าง:
-    #       ใบกำกับภาษีออกโดย : สำนักงานใหญ่  -> 00000
-    #       ใบกำกับภาษีออกโดย : สาขาที่ 00002 -> 00002
-    #       ISSUED BY : HEAD OFFICE            -> 00000
-    #
-    #     จุดนี้อ่านเฉพาะข้อความที่ระบุว่าเป็นผู้/สาขาที่ออกเอกสารโดยตรง
-    #     จึงต้องมาก่อน master list ของสาขา และห้ามใช้ Customer branch มาแทน
-    # ==========================================================
-    # Vendor-only issuer patterns จาก config
-    # CustomerBranch / CompanyBranch_invoice จะไม่เรียก pattern ชุดนี้
-    issuer_by_patterns = [
-        re.compile(pattern, re.IGNORECASE)
-        for pattern in VENDOR_ISSUER_PATTERNS
-    ]
-
-    # รูปแบบบน Invoice บางเจ้า เช่น YPC:
-    # "สาขาที่ออกใบกำกับภาษีคือ Head Office"
-    # เป็นข้อมูลสาขาผู้ออกเอกสารโดยตรง ไม่ใช่รายการ Master Branch
-    issuer_by_patterns.append(
-        re.compile(r"สาขาที่ออกใบกำกับภาษี", re.IGNORECASE)
+    # Highest priority: an explicit seller-issued tax invoice branch statement.
+    # Example: "สาขาที่ออกใบกำกับภาษี : สาขาที่ 00003" (IRC).
+    # This outranks office-address lists and checkbox heuristics.
+    explicit_issuer_label = re.compile(
+        r"สาขา\s*(?:ที่\s*)?ออก\s*(?:ใบ\s*กำกับ\s*ภาษี|ใบ\s*ส่ง\s*สินค้า|เอกสาร)"
+        r"|สาขา\s*ผู้\s*ออก\s*(?:ใบ\s*กำกับ\s*ภาษี|เอกสาร)?"
+        r"|TAX\s*INVOICE\s*ISSUING\s*BRANCH"
+        r"|INVOICE\s*ISSUING\s*BRANCH",
+        re.I,
     )
+    branch_value_after_label = re.compile(
+        r"(?:สาขา\s*(?:ที่|เลขที่)?|BRANCH\s*(?:NO\.?|NUMBER)?)\s*[:：#-]?\s*(\d{1,5})",
+        re.I,
+    )
+    for i, (pi, txt, _) in enumerate(rows):
+        if not explicit_issuer_label.search(txt):
+            continue
+        if buyer_re.search(txt) or buyer_tax(txt):
+            continue
+        # Search only AFTER the issuer label to avoid unrelated branch codes.
+        tail = txt[explicit_issuer_label.search(txt).end():]
+        candidates = [m.group(1).zfill(5) for m in branch_value_after_label.finditer(tail)]
+        if not candidates:
+            # Some OCR versions omit the second 'สาขาที่' but keep the number.
+            bare = re.match(r"\s*[:：#-]?\s*(\d{1,5})\b", tail)
+            if bare:
+                candidates = [bare.group(1).zfill(5)]
+        if not candidates:
+            # OCR may put the value on the following line.
+            for pj, following, _ in rows[i + 1:i + 3]:
+                if pj != pi or buyer_re.search(following) or buyer_tax(following):
+                    break
+                matches = branch_value_after_label.findall(following)
+                if matches:
+                    candidates = [v.zfill(5) for v in matches]
+                    break
+                bare = re.fullmatch(r"\s*0*\d{1,5}\s*", following)
+                if bare:
+                    candidates = [following.strip().zfill(5)]
+                    break
+        if len(set(candidates)) == 1:
+            value = candidates[0]
+            vendor_branch_debug('EXPLICIT_TAX_INVOICE_ISSUER', pdf_path=str(pdf_path or ''),
+                                text=txt, result=value)
+            print(f'✅ VendorBranch explicit tax invoice issuing branch: {value}')
+            return value
+        vendor_branch_debug('EXPLICIT_ISSUER_UNRESOLVED', pdf_path=str(pdf_path or ''),
+                            text=txt, candidates=candidates)
 
-    # จำกัดการหาไว้ก่อน Customer Tax ID เพื่อกัน Customer/Company branch
-    explicit_issuer_end = len(lines)
-    for _i, _text in enumerate(lines):
-        if contains_customer_tax_id(_text):
-            explicit_issuer_end = _i
+    # Only a branch stamp next to an invoice NUMBER is issuing evidence.
+    # Never treat a branch address in the vendor letterhead as the issuer.
+    # OCR may split "เลขที่", the invoice number and "สาขาที่ 00003"
+    # into three consecutive rows. Require an actual invoice-number token to
+    # avoid interpreting a registered-office directory as the issuing branch.
+    invoice_number_re = re.compile(r"^(?:[A-Z]{1,4}\d{5,}[/-]?\d*|\d{8,12})$", re.I)
+    branch_stamp_re = re.compile(r"^\s*(?:สาขา(?:ที่|เลขที่)?|BRANCH\s*(?:NO\.?)?)\s*[:：#-]?\s*(\d{1,5})\s*$", re.I)
+    for i, (pi, txt, rect) in enumerate(rows):
+        if not re.search(r"(?:เลขที่|INVOICE\s*(?:NO\.?|NUMBER))", txt, re.I):
+            continue
+        if buyer_tax(txt):
+            continue
+        nearby = [t for pj, t, _ in rows[i:i+5] if pj == pi]
+        has_invoice = any(invoice_number_re.fullmatch(t.strip()) for t in nearby)
+        has_invoice |= bool(re.search(r"(?:เลขที่|INVOICE\s*(?:NO\.?|NUMBER))\s*[:：#-]?\s*[A-Z]{1,4}\d{5,}", txt, re.I))
+        if not has_invoice:
+            continue
+        for near in nearby:
+            m = branch_stamp_re.fullmatch(near)
+            if m:
+                result = m.group(1).zfill(5)
+                vendor_branch_debug('ISSUER_NEAR_INVOICE', pdf_path=str(pdf_path or ''), invoice_context=nearby, result=result)
+                return result
+
+    for i, (pi, txt, rect) in enumerate(rows):
+        if issuer_re.search(txt) and not buyer_re.search(txt) and not buyer_tax(txt):
+            values = parse_options(txt)
+            if len(values) == 1:
+                print(f'✅ VendorBranch explicit issuer: {values[0]}')
+                return values[0]
+            for pj, near, _ in rows[i+1:i+3]:
+                if pj == pi and not buyer_re.search(near) and not buyer_tax(near):
+                    values = parse_options(near)
+                    if len(values) == 1:
+                        print(f'✅ VendorBranch issuer continuation: {values[0]}')
+                        return values[0]
+
+    # Restrict office choices to the vendor letterhead. Avoid customer HEAD OFFICE.
+    vendor_rows = []
+    for pi, txt, rect in rows:
+        if buyer_re.search(txt) or buyer_tax(txt):
             break
+        vendor_rows.append((pi, txt, rect))
+    if not vendor_rows:
+        print('⚠️ VendorBranch: no vendor header isolated')
+        return ''
 
-    for i in range(explicit_issuer_end):
-        text = lines[i]
-        if not any(p.search(text) for p in issuer_by_patterns):
-            continue
+    options = []
+    for pi, txt, rect in vendor_rows:
+        values = parse_options(txt)
+        if len(values) == 1:
+            options.append((pi, values[0], txt, rect))
+        elif len(values) > 1:
+            # Never assign one choice from a merged multi-option OCR line.
+            print(f'🔎 VendorBranch multiple choices in OCR line: {txt}')
+    vendor_branch_debug('OCR_OPTIONS', pdf_path=str(pdf_path or ''), options=[{'page': pi+1, 'branch': val, 'text': txt, 'bounds': rect} for pi, val, txt, rect in options], vendor_rows=[{'page': pi+1, 'text': txt, 'bounds': rect} for pi, txt, rect in vendor_rows])
+    if not options:
+        vendor_branch_debug('NO_OPTIONS', pdf_path=str(pdf_path or ''))
+        return ''
 
-        # ปกติค่าอยู่บรรทัดเดียวกัน แต่ OCR อาจแยกไปบรรทัดถัดไป
-        issuer_window = [text]
-        for j in range(i + 1, min(i + 3, explicit_issuer_end)):
-            issuer_window.append(lines[j])
-
-        # ตรวจทีละบรรทัดก่อน เพื่อไม่ให้ branch อื่นที่ไกลกว่าแทรกเข้ามา
-        for candidate_text in issuer_window:
-            if head_office_pattern.search(candidate_text):
-                print(f"✅ VendorBranch from ISSUED BY -> 00000 | {candidate_text}")
-                return "00000"
-
-            branch = find_numeric_branch(candidate_text)
-            if branch:
-                print(f"✅ VendorBranch from ISSUED BY -> {branch} | {candidate_text}")
-                return branch
-
-    # ==========================================================
-    # 0B) Invoice Issuer Branch (สำคัญรองลงมา)
-    #    เอกสารบาง Vendor มี master list ของทุกสาขาทางซ้าย
-    #    แต่สาขาที่ออก Invoice จริงจะพิมพ์ใกล้เลขที่ Invoice / TAX INVOICE
-    #    เช่น: เลขที่ T32602290   สาขาที่ 00002
-    #    ต้องเลือก 00002 ไม่ใช่ Head Office หรือสาขาแรกใน master list
-    # ==========================================================
-    issuer_context_patterns = [
-        re.compile(r"ORIGINAL\s+TAX\s+INVOICE", re.IGNORECASE),
-        re.compile(r"TAX\s+INVOICE(?:\s*/\s*INVOICE\s+COPY)?", re.IGNORECASE),
-        re.compile(r"INVOICE\s+(?:NO\.?|NUMBER)", re.IGNORECASE),
-        re.compile(r"เลขที่\s*[A-Z0-9][A-Z0-9\-/]*", re.IGNORECASE),
-    ]
-
-    issuer_candidates = []
-    for i, text in enumerate(lines):
-        # ต้องเป็น Branch ที่มี label กำกับเท่านั้น
-        branch = find_numeric_branch(text)
-        if not branch:
-            continue
-
-        # ดูบริบทใกล้บรรทัด branch ทั้งก่อนและหลัง
-        start_ctx = max(0, i - 4)
-        end_ctx = min(len(lines), i + 5)
-        context_lines = lines[start_ctx:end_ctx]
-        context_text = " ".join(context_lines)
-
-        # ต้องมีหลักฐานว่าเป็นบริเวณหัว Invoice / เลขที่ Invoice
-        if not any(p.search(context_text) for p in issuer_context_patterns):
-            continue
-
-        # ให้คะแนน: branch ที่อยู่ใกล้คำว่า TAX INVOICE / Invoice No มากที่สุด
-        best_distance = 999
-        for j in range(start_ctx, end_ctx):
-            if any(p.search(lines[j]) for p in issuer_context_patterns):
-                best_distance = min(best_distance, abs(i - j))
-
-        issuer_candidates.append((best_distance, i, branch, text))
-
-    if issuer_candidates:
-        issuer_candidates.sort(key=lambda x: (x[0], x[1]))
-        best_distance, _, best_branch, best_text = issuer_candidates[0]
-        print(
-            f"✅ VendorBranch from INVOICE ISSUER -> {best_branch} "
-            f"| distance={best_distance} | {best_text}"
-        )
-        return best_branch
-
-    # ==========================================================
-    # 1) Selection mark / checkbox ของ Vendor
-
-    #    เอกสารบาง Vendor พิมพ์ Head Office, 00001, 00002, 00003
-    #    พร้อมกันเป็น master list จึงห้ามเลือก Head Office เพียงเพราะพบคำนี้
-    #    ต้องดูว่าช่องใดถูก SELECTED สำหรับ Invoice ใบนั้น
-    # ==========================================================
-    try:
-        for page in getattr(invoices, "pages", []) or []:
-            page_lines = getattr(page, "lines", []) or []
-            selection_marks = getattr(page, "selection_marks", []) or []
-
-            selected_marks = []
-            for mark in selection_marks:
-                state = str(getattr(mark, "state", "") or "").lower()
-                if "selected" in state and "unselected" not in state:
-                    center = polygon_center(mark)
-                    if center:
-                        selected_marks.append(center)
-
-            if not selected_marks:
+    selected = []
+    for pi, val, txt, rect in options:
+        if tick_re.search(txt[:25]):
+            selected.append(val)
+    # Azure selection_marks are optional in prebuilt-invoice. Check only marks
+    # horizontally aligned to a vendor choice, not marks elsewhere on the page.
+    for pi, page in enumerate(pages):
+        vendor_branch_debug('AZURE_SELECTION_MARKS', pdf_path=str(pdf_path or ''), page=pi+1, marks=[{'state': str(getattr(mark, 'state', '')), 'bounds': bounds(mark)} for mark in (getattr(page, 'selection_marks', []) or [])])
+        candidates = [(v, t, r) for p, v, t, r in options if p == pi and r]
+        for mark in (getattr(page, 'selection_marks', []) or []):
+            state = str(getattr(mark, 'state', '') or '').lower()
+            if 'selected' not in state or 'unselected' in state:
                 continue
-
-            candidates = []
-            customer_started = False
-
-            for line in page_lines:
-                text = re.sub(r"\s+", " ", str(getattr(line, "content", "") or "")).strip()
-                if not text:
-                    continue
-
-                # Customer Tax ID เป็น boundary ที่แข็งที่สุด
-                if contains_customer_tax_id(text):
-                    customer_started = True
-
-                # label Customer ใช้เป็น boundary เฉพาะเมื่อผ่าน VendorTaxId แล้ว
-                if any(p.search(text) for p in customer_zone_patterns):
-                    if vendor_tax_id:
-                        # ถ้า label เดียวกันอยู่หัวตารางก่อน VendorTaxId จะยังไม่หยุด
-                        # แต่ถ้า line นี้/ก่อนหน้านี้ผ่าน VendorTaxId แล้วจะถูกกรองด้านล่าง
-                        pass
-                    else:
-                        customer_started = True
-
-                if customer_started:
-                    continue
-
-                branch = branch_from_text(text)
-                if not branch:
-                    continue
-
-                center = polygon_center(line)
-                if center:
-                    candidates.append((branch, text, center))
-
-            # จับ selected checkbox กับข้อความ branch ที่อยู่ใกล้ที่สุด
-            # ให้ความสำคัญกับระยะในแนวตั้ง เพราะ checkbox มักอยู่บรรทัดเดียวกับ branch
-            best = None
-            for mx, my in selected_marks:
-                for branch, text, (lx, ly) in candidates:
-                    dy = abs(my - ly)
-                    dx = abs(mx - lx)
-                    score = (dy * 5.0) + dx
-                    if best is None or score < best[0]:
-                        best = (score, dy, branch, text)
-
-            # dy จำกัดเพื่อไม่จับ checkbox ของส่วนอื่นของเอกสาร
-            if best is not None and best[1] <= 0.35:
-                print(f"✅ VendorBranch from SELECTED mark -> {best[2]} | {best[3]}")
-                return best[2]
-    except Exception as e:
-        print(f"⚠️ VendorBranch selection-mark check skipped: {e}")
-
-    # ==========================================================
-    # 1B) Vendor Header Zone
-    #     ตรวจส่วนหัว Vendor ตั้งแต่ต้นหน้าไปจนถึง VendorTaxId
-    #     ใช้เฉพาะเมื่อ Header มีสถานะสาขาที่ชัดเจนเพียงค่าเดียว
-    #
-    #     ตัวอย่าง SIAMCHAI:
-    #       Company Name (สำนักงานใหญ่) / (Head Office)
-    #       ...
-    #       TAX ID 0115554004074
-    #       -> VendorBranch = 00000
-    #
-    #     ถ้า Header มีหลายสาขา เช่น T.KRUNGTHAI:
-    #       สำนักงานใหญ่ + 00001 + 00002 + 00003
-    #       -> ไม่ตัดสินจาก Header; ไปใช้ Invoice Issuer logic
-    #
-    #     IMPORTANT: ไม่อ่านเลย CustomerTaxId และไม่ใช้ CustomerBranch
-    # ==========================================================
-    header_end = None
-    if vendor_tax_id:
-        for _idx, _line in enumerate(lines):
-            if vendor_tax_id in clean_tax_id(_line):
-                # รวมบรรทัด VendorTaxId และอีกไม่เกิน 2 บรรทัดถัดไป
-                # เพื่อรองรับกรณีคำว่า สำนักงานใหญ่ อยู่ถัดจาก Tax ID
-                header_end = min(len(lines), _idx + 3)
-                break
-
-    if header_end is None:
-        header_end = min(len(lines), 20)
-
-    # ห้าม Vendor Header Zone เลยเข้า Customer Tax ID
-    for _idx in range(min(header_end, len(lines))):
-        if contains_customer_tax_id(lines[_idx]):
-            header_end = _idx
-            break
-
-    header_branches = []
-    header_evidence = []
-
-    for _idx in range(header_end):
-        _text = lines[_idx]
-
-        if contains_customer_tax_id(_text):
-            break
-
-        _branch = branch_from_text(_text)
-        if _branch:
-            if _branch not in header_branches:
-                header_branches.append(_branch)
-            header_evidence.append((_branch, _text))
-
-    # ตัดสินจาก Header เฉพาะกรณีมี branch value เดียวเท่านั้น
-    # ป้องกัน master list หลายสาขาของ Vendor
-    if len(header_branches) == 1:
-        _branch = header_branches[0]
-        print(
-            f"✅ VendorBranch unique in VENDOR HEADER -> {_branch} | "
-            f"evidence={header_evidence}"
-        )
-        return _branch
-
-    if len(header_branches) > 1:
-        print(
-            f"ℹ️ Vendor header has multiple branches {header_branches} "
-            f"-> ignore header and continue issuer/vendor logic"
-        )
-
-    # ==========================================================
-    # 1C) SupplierName / Vendor-name anchor
-    #     รองรับเช่น:
-    #       SIAMCHAI ... CO., LTD. (Head Office) -> 00000
-    #       บริษัท ... จำกัด (สำนักงานใหญ่)       -> 00000
-    #       Vendor Name ... Branch No. 00002      -> 00002
-    #     จำกัด window รอบชื่อ Vendor และหยุดก่อน Customer Tax ID
-    # ==========================================================
-    supplier_anchor = find_supplier_anchor()
-    if supplier_anchor is not None:
-        supplier_end = min(len(lines), supplier_anchor + 5)
-        for j in range(supplier_anchor, supplier_end):
-            candidate_text = lines[j]
-            if contains_customer_tax_id(candidate_text):
-                break
-            # ถ้าเจอ customer label หลังชื่อ vendor ให้หยุดทันที
-            if j > supplier_anchor and any(p.search(candidate_text) for p in customer_zone_patterns):
-                break
-            branch = branch_from_text(candidate_text)
-            if branch:
-                print(f"✅ VendorBranch from SUPPLIER NAME -> {branch} | {candidate_text}")
-                return branch
-
-    # ==========================================================
-    # 2) หา Vendor Tax ID anchor
-    # ==========================================================
-    anchor_index = None
-    if vendor_tax_id:
-        for i, text in enumerate(lines):
-            if vendor_tax_id in clean_tax_id(text):
-                anchor_index = i
-                break
-
-    # ==========================================================
-    # 3) Customer boundary หลัง Vendor anchor
-    # ==========================================================
-    boundary_index = len(lines)
-    search_from = (anchor_index + 1) if anchor_index is not None else 0
-
-    for i in range(search_from, len(lines)):
-        text = lines[i]
-        if contains_customer_tax_id(text):
-            boundary_index = i
-            break
-        if any(p.search(text) for p in customer_zone_patterns):
-            boundary_index = i
-            break
-
-    # ==========================================================
-    # 4) VendorTaxId fallback
-    #    ห้ามใช้ blanket rule ว่าเห็น Head Office ที่ใดใน header = 0000
-    #    เพราะบางเอกสารพิมพ์หลายสาขาพร้อมกัน
-    # ==========================================================
-    if anchor_index is not None:
-        start = max(0, anchor_index - 8)
-        end = min(len(lines), anchor_index + 9, boundary_index)
-
-        ordered_indexes = [anchor_index]
-        for distance in range(1, 9):
-            before = anchor_index - distance
-            after = anchor_index + distance
-            if before >= start:
-                ordered_indexes.append(before)
-            if after < end:
-                ordered_indexes.append(after)
-
-        found = []
-        for idx in ordered_indexes:
-            text = lines[idx]
-            if contains_customer_tax_id(text):
+            mb = bounds(mark)
+            if not mb:
                 continue
-            branch = branch_from_text(text)
-            if branch:
-                found.append((idx, branch, text))
+            mx, my = (mb[0]+mb[2])/2, (mb[1]+mb[3])/2
+            scored = []
+            for val, txt, r in candidates:
+                line_h = max(r[3]-r[1], mb[3]-mb[1], 0.01)
+                dy = abs(my-(r[1]+r[3])/2)/line_h
+                dx = (r[0]-mx)/line_h
+                if dy <= 0.85 and -1.0 <= dx <= 9:
+                    scored.append((dy+max(0, dx)*0.025, val))
+            scored.sort()
+            if scored and (len(scored) == 1 or scored[1][0]-scored[0][0] > .22):
+                selected.append(scored[0][1])
 
-        # ถ้ามี branch candidate เพียงค่าเดียว ถือว่าชัดเจน
-        unique_branches = []
-        for _, branch, _ in found:
-            if branch not in unique_branches:
-                unique_branches.append(branch)
+    # Local PDF image fallback for prebuilt-invoice OCR without polygons.
+    # Match a vertical column of real checkbox outlines to the ordered vendor
+    # branch choices, then compare their INSIDE ink (not their printed borders).
+    if not selected and pdf_path and len({v for _, v, _, _ in options}) > 1:
+        try:
+            import cv2
+            import numpy as np
+            from pdf2image import convert_from_path
+            from itertools import combinations
 
-        if len(unique_branches) == 1:
-            print(f"✅ VendorBranch unique near VendorTaxID {vendor_tax_id} -> {unique_branches[0]}")
-            return unique_branches[0]
+            for pi in sorted({p for p, _, _, _ in options}):
+                page_options = [(v, t, r) for p, v, t, r in options if p == pi]
+                if len(page_options) != 2:
+                    vendor_branch_debug('IMAGE_SKIP_AMBIGUOUS_OPTIONS', pdf_path=str(pdf_path or ''), page=pi+1, count=len(page_options))
+                    continue
+                images = convert_from_path(pdf_path, dpi=200, first_page=pi+1,
+                                           last_page=pi+1, grayscale=True)
+                if not images:
+                    continue
+                gray = np.asarray(images[0].convert('L'))
+                h, w = gray.shape
+                bw_img = cv2.threshold(gray, 195, 255, cv2.THRESH_BINARY_INV)[1]
+                contours, _ = cv2.findContours(bw_img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+                boxes = []
+                for c in contours:
+                    x, y, bw, bh = cv2.boundingRect(c)
+                    if not (9 <= bw <= 55 and 9 <= bh <= 55 and 0.7 <= bw/bh <= 1.35):
+                        continue
+                    if x > w*.36 or y > h*.36:
+                        continue
+                    if cv2.contourArea(c) < bw*bh*.43:
+                        continue
+                    inset = max(2, round(min(bw, bh)*.25))
+                    inside = bw_img[y+inset:y+bh-inset, x+inset:x+bw-inset]
+                    if inside.size < 12:
+                        continue
+                    fill = float(np.mean(inside > 0))
+                    if fill >= .8:
+                        continue
+                    boxes.append((x,y,bw,bh,fill))
+                # Deduplicate nested contours for the same square.
+                dedup = []
+                for b in sorted(boxes, key=lambda z: z[2]*z[3], reverse=True):
+                    if not any(abs(b[0]-a[0]) < 7 and abs(b[1]-a[1]) < 7 for a in dedup):
+                        dedup.append(b)
+                # A pair of checkboxes has the same left edge and is vertically
+                # separated. Reject unrelated page boxes and large gaps.
+                pairs = []
+                for a,b in combinations(dedup,2):
+                    a,b = sorted((a,b), key=lambda z:z[1])
+                    dx = abs(a[0]-b[0]); dy = b[1]-a[1]
+                    if dx > max(11, min(a[2],b[2])*.6) or not (a[3]*1.5 <= dy <= h*.14):
+                        continue
+                    if abs(a[2]-b[2]) > max(a[2],b[2])*.45:
+                        continue
+                    # Prefer a tight pair with similar checkbox dimensions and
+                    # near the top of the page, avoiding table grid boxes.
+                    score = dy/h*3 + a[1]/h*1.5 + dx/w*5 + a[0]/w*2 + abs(a[2]-b[2])/max(a[2],b[2])
+                    pairs.append((score,a,b))
+                vendor_branch_debug('IMAGE_BOX_SCAN', pdf_path=str(pdf_path or ''), page=pi+1,
+                                    candidate_count=len(dedup), pair_count=len(pairs),
+                                    candidates=dedup[:50])
+                if not pairs:
+                    continue
+                pairs.sort(key=lambda z:z[0])
+                _, a, b = pairs[0]
+                choices = [a,b]
+                for (branch, label, _), box in zip(page_options, choices):
+                    vendor_branch_debug('OPENCV_CHECKBOX', pdf_path=str(pdf_path or ''),
+                                        page=pi+1, branch=branch, label=label,
+                                        checkbox_x=box[0], checkbox_y=box[1],
+                                        fill_score=round(box[4],5))
+                winner = max(range(2), key=lambda i: choices[i][4])
+                delta = choices[winner][4]-choices[1-winner][4]
+                if choices[winner][4] >= .10 and delta >= .07:
+                    result = page_options[winner][0]
+                    selected.append(result)
+                    vendor_branch_debug('IMAGE_SELECTED', pdf_path=str(pdf_path or ''),
+                                        page=pi+1, result=result, difference=round(delta,5))
+                else:
+                    vendor_branch_debug('IMAGE_UNCERTAIN', pdf_path=str(pdf_path or ''),
+                                        page=pi+1, scores=[a[4],b[4]])
+        except Exception as exc:
+            vendor_branch_debug('IMAGE_SCAN_ERROR', pdf_path=str(pdf_path or ''), error=repr(exc))
+            print(f'⚠️ VendorBranch local checkbox scan failed: {exc}')
 
-        # ถ้ามีหลายสาขาพร้อมกัน แปลว่าเป็น master list
-        # ถ้าไม่มี checkbox/selection หลักฐานชัดเจน ห้ามเดา
-        if len(unique_branches) > 1:
-            print(
-                f"⚠️ Multiple Vendor branches near VendorTaxID {vendor_tax_id}: "
-                f"{unique_branches} -> blank (no guessing)"
-            )
-            return ""
-
-        print(f"⚠️ VendorBranch not found near VendorTaxID {vendor_tax_id} -> blank")
-        return ""
-
-    # ==========================================================
-    # 5) ไม่มี VendorTaxId: conservative Vendor zone
-    # ==========================================================
-    safe_end = min(boundary_index, 35)
-    found = []
-    for text in lines[:safe_end]:
-        if contains_customer_tax_id(text):
-            break
-        branch = branch_from_text(text)
-        if branch and branch not in found:
-            found.append(branch)
-
-    if len(found) == 1:
-        print(f"✅ VendorBranch unique in vendor zone -> {found[0]}")
-        return found[0]
-
-    if len(found) > 1:
-        print(f"⚠️ Multiple Vendor branches in vendor zone: {found} -> blank (no guessing)")
-
-    print("⚠️ VendorBranch not found -> blank (no Customer/Company fallback)")
-    return ""
+    vendor_branch_debug('SELECTION_SUMMARY', pdf_path=str(pdf_path or ''), selected=selected, all_options=[v for _, v, _, _ in options])
+    unique = set(selected)
+    if len(unique) == 1:
+        result = next(iter(unique))
+        print(f'✅ VendorBranch selected option: {result}')
+        return result
+    if len(unique) > 1:
+        print(f'⚠️ VendorBranch conflicting selected options {sorted(unique)}')
+        return ''
+    distinct = {v for _, v, _, _ in options}
+    if len(distinct) == 1:
+        result = next(iter(distinct))
+        print(f'✅ VendorBranch unique vendor header: {result}')
+        return result
+    print(f'⚠️ VendorBranch multiple unconfirmed vendor options: {sorted(distinct)}')
+    return ''
 
 def extract_tax_id_from_pages(invoices, ocr_cache=None):
     full_text = ocr_cache["full_text"] if ocr_cache is not None else get_all_text(invoices)
@@ -4329,7 +4123,17 @@ for input_pdf in pdf_list:
                 layout_result=None,
                 ocr_cache=ocr_cache,
                 vendor_tax_id=invoice_data.get("VendorTaxId", ""),
-                supplier_name=invoice_data.get("SupplierName", "")
+                supplier_name=invoice_data.get("SupplierName", ""),
+                pdf_path=pdf_path
+            )
+
+            vendor_branch_debug(
+                'FINAL_VENDOR_BRANCH',
+                pdf_path=str(pdf_path),
+                invoice_no=invoice_data.get('TaxInvoiceNo', ''),
+                vendor_tax_id=invoice_data.get('VendorTaxId', ''),
+                supplier_name=invoice_data.get('SupplierName', ''),
+                vendor_branch=invoice_data.get('VendorBranch', '')
             )
 
             # ==================================================
