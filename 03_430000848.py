@@ -4528,8 +4528,7 @@ for row in all_data:
     #             "กรุณาเช็ค Amount ทั้ง 3 ช่อง"
     #         )
 
-    # except Exception:
-    #     errors.append("VATAmount format invalid")
+    # VAT validation block is disabled above; no except clause is needed.
 
     row["Emessage"] = append_msg(
         row.get("Emessage", ""),
@@ -4587,13 +4586,11 @@ MATCHING_INPUT_EXCEL = os.path.join(
 if os.path.abspath(output_excel) != os.path.abspath(MATCHING_INPUT_EXCEL):
     shutil.copy2(output_excel, MATCHING_INPUT_EXCEL)
 
-# คัดลอก TXT ต้นทางไว้เป็นหลักฐานของรอบที่ประมวลผล
+# กำหนดปลายทาง TXT แต่ยังไม่ย้ายจนกว่า Matching จะสำเร็จ
 MATCHING_ARCHIVE_TEXT = os.path.join(
     MATCHING_OUTPUT_FOLDER,
     os.path.basename(MATCHING_TEXT_PATH)
 )
-if os.path.abspath(MATCHING_TEXT_PATH) != os.path.abspath(MATCHING_ARCHIVE_TEXT):
-    shutil.copy2(MATCHING_TEXT_PATH, MATCHING_ARCHIVE_TEXT)
 
 MATCHING_OUTPUT_EXCEL = os.path.join(
     MATCHING_OUTPUT_FOLDER,
@@ -4613,7 +4610,7 @@ subprocess.run(
         sys.executable,
         MATCHING_SCRIPT,
         MATCHING_INPUT_EXCEL,
-        MATCHING_ARCHIVE_TEXT,
+        MATCHING_TEXT_PATH,
         MATCHING_MASTER_PATH,
         MATCHING_OUTPUT_EXCEL,
     ],
@@ -4625,4 +4622,20 @@ if not os.path.isfile(MATCHING_OUTPUT_EXCEL):
         f"Matching did not create output Excel: {MATCHING_OUTPUT_EXCEL}"
     )
 
+# Matching_TextFile.py รุ่นใหม่ย้าย TXT ให้แล้ว; รองรับรุ่นเก่าที่ยังไม่ย้ายด้วย
+if os.path.normcase(os.path.abspath(MATCHING_TEXT_PATH)) != os.path.normcase(os.path.abspath(MATCHING_ARCHIVE_TEXT)):
+    if os.path.isfile(MATCHING_TEXT_PATH):
+        if os.path.exists(MATCHING_ARCHIVE_TEXT):
+            raise FileExistsError(
+                f"ไม่ย้าย TXT เพราะมีไฟล์ชื่อเดียวกันอยู่ที่ปลายทางแล้ว: {MATCHING_ARCHIVE_TEXT}"
+            )
+        shutil.move(MATCHING_TEXT_PATH, MATCHING_ARCHIVE_TEXT)
+        print(f"📦 Moved TXT: {MATCHING_TEXT_PATH} -> {MATCHING_ARCHIVE_TEXT}")
+    elif os.path.isfile(MATCHING_ARCHIVE_TEXT):
+        print(f"📦 TXT ถูกย้ายโดย Matching_TextFile.py แล้ว: {MATCHING_ARCHIVE_TEXT}")
+    else:
+        raise FileNotFoundError(f"ไม่พบ TXT ทั้งต้นทางและปลายทาง: {MATCHING_TEXT_PATH}")
+
 print(f"\n✅ Matching completed. Final Excel: {MATCHING_OUTPUT_EXCEL}")
+
+# Matching_TextFile.py ทำสี Emessage ในไฟล์ matched แล้ว (เวอร์ชัน fixed)

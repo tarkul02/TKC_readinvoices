@@ -1,4 +1,5 @@
 import os
+import shutil
 import re
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, date
@@ -837,4 +838,22 @@ if __name__ == "__main__":
     # ทำสี Error บนไฟล์ผลลัพธ์ที่ได้รับจาก command line จริง
     # (ไม่ใช้ OUTPUT_EXCEL_PATH ซึ่งเป็นค่า default สำหรับ standalone)
     highlight_excel_errors(output_excel_path)
+
+    # ย้าย TXT หลังจาก Matching และ Highlight สำเร็จแล้วเท่านั้น
+    if not os.path.isfile(output_excel_path):
+        raise FileNotFoundError(f"ไม่พบ Excel ผลลัพธ์: {output_excel_path}")
+
+    destination_dir = os.path.dirname(os.path.abspath(output_excel_path))
+    os.makedirs(destination_dir, exist_ok=True)
+    txt_destination = os.path.join(destination_dir, os.path.basename(text_path))
+
+    if os.path.normcase(os.path.abspath(text_path)) != os.path.normcase(os.path.abspath(txt_destination)):
+        if not os.path.isfile(text_path):
+            raise FileNotFoundError(f"ไม่พบ TXT ต้นฉบับสำหรับย้าย: {text_path}")
+        if os.path.exists(txt_destination):
+            raise FileExistsError(f"มี TXT ชื่อเดียวกันที่ปลายทางแล้ว ไม่เขียนทับ: {txt_destination}")
+        shutil.move(text_path, txt_destination)
+        print(f"📦 Moved TXT: {text_path} -> {txt_destination}")
+    else:
+        print(f"📄 TXT อยู่ในโฟลเดอร์ผลลัพธ์แล้ว: {text_path}")
 
