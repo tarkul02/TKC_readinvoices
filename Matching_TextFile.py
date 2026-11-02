@@ -834,6 +834,7 @@ if __name__ == "__main__":
         output_excel_path
     )
 
-# ต้องเป็นขั้นตอนสุดท้ายหลัง OCR และ Matching
-highlight_excel_errors(OUTPUT_EXCEL_PATH)
+    # ทำสี Error บนไฟล์ผลลัพธ์ที่ได้รับจาก command line จริง
+    # (ไม่ใช้ OUTPUT_EXCEL_PATH ซึ่งเป็นค่า default สำหรับ standalone)
+    highlight_excel_errors(output_excel_path)
 
