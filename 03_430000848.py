@@ -2593,7 +2593,7 @@ def clean_company_name(name):
 # Set to False after troubleshooting.
 # ============================================================
 DEBUG_VENDOR_BRANCH = True
-print(f'📌 VendorBranch patched script: {os.path.abspath(__file__)} | version 2026-11-02-branch-v4-nifco')
+print(f'📌 VendorBranch patched script: {os.path.abspath(__file__)} | version 2026-11-03-branch-v5-issuer-priority')
 
 def vendor_branch_debug(event, **details):
     if not DEBUG_VENDOR_BRANCH:
@@ -2620,7 +2620,7 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None,
     head_re = re.compile(r"สำนักงานใหญ่|HEAD\s*OFFICE|HEADOFFICE", re.I)
     number_re = re.compile(r"(?:สาขา(?:ที่|เลขที่)?|BRANCH\s*(?:NO\.?|NUMBER|CODE|ID)?)\s*[:：#-]?\s*(\d{1,5})", re.I)
     issuer_re = re.compile(r"ออกโดย|สาขาที่ออก|สาขาผู้ออก|ISSUED\s+BY", re.I)
-    buyer_re = re.compile(r"\b(?:CUSTOMER|BILL\s+TO|SHIP\s+TO|SOLD\s+TO|ACCOUNT\s+TO|BUYER)\b|ชื่อลูกค้า|ชื่อผู้ซื้อ|ผู้ซื้อ|รหัสลูกค้า", re.I)
+    buyer_re = re.compile(r"\b(?:CUSTOMER|BILL\s+TO|SHIP\s+TO|SOLD\s+TO|ACCOUNT\s+TO|INVOICE\s+TO|BUYER|PURCHASER|DELIVERY\s+TO)\b|ชื่อลูกค้า|ชื่อผู้ซื้อ|ผู้ซื้อ|รหัสลูกค้า|ส่งให้|ส่งถึง|ผู้รับสินค้า|ชื่อลูกค้า|ที่อยู่ลูกค้า", re.I)
     tick_re = re.compile(r"☑|☒|✓|✔|\[\s*[xX✓✔]\s*\]|\(\s*[xX✓✔]\s*\)")
 
     def bounds(obj):
@@ -2662,6 +2662,133 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None,
         vendor_branch_debug('NO_OCR_ROWS', pdf_path=str(pdf_path or ''))
         return ''
 
+    def buyer_tax(text):
+        digits = clean_tax_id(text)
+        return any(t in digits for t in customer_ids)
+
+    # Highest priority: an explicit seller-issued tax invoice branch statement.
+    # Example: "สาขาที่ออกใบกำกับภาษี : สาขาที่ 00003" (IRC).
+    # This outranks office-address lists and checkbox heuristics.
+    explicit_issuer_label = re.compile(
+        r"สาขา\s*(?:ที่\s*)?ออก\s*(?:ใบ\s*กำกับ\s*ภาษี|ใบ\s*ส่ง\s*สินค้า|เอกสาร)"
+        r"|สาขา\s*ผู้\s*ออก\s*(?:ใบ\s*กำกับ\s*ภาษี|เอกสาร)?"
+        r"|ใบ\s*กำกับ\s*ภาษี\s*ออก\s*โดย"
+        r"|ที่\s*อ่อน\s*ใช้\s*กำกับ\s*ภาษี"  # damaged Thai OCR: ที่อ่อนใช้กำกับภาษี
+        r"|TAX\s*INVOICE\s*ISSUING\s*BRANCH"
+        r"|INVOICE\s*ISSUING\s*BRANCH",
+        re.I,
+    )
+    branch_value_after_label = re.compile(
+        r"(?:สาขา\s*(?:ที่|เลขที่)?|BRANCH\s*(?:NO\.?|NUMBER)?)\s*[:：#-]?\s*(\d{1,5})",
+        re.I,
+    )
+    for i, (pi, txt, _) in enumerate(rows):
+        label_match = explicit_issuer_label.search(txt)
+        if not label_match or buyer_re.search(txt) or buyer_tax(txt):
+            continue
+        tail = txt[label_match.end():]
+        # HEAD OFFICE is an explicit value, NOT a prompt to read the next row's
+        # item number / quantity. This caused YPC 00001 and 00008.
+        if head_re.search(tail):
+            vendor_branch_debug('EXPLICIT_TAX_INVOICE_ISSUER', pdf_path=str(pdf_path or ''),
+                                text=txt, result='00000', evidence='head_office_same_line')
+            return '00000'
+        candidates = [m.group(1).zfill(5) for m in branch_value_after_label.finditer(tail)]
+        if not candidates:
+            bare = re.match(r"\s*[:：#-]?\s*(\d{1,5})\b", tail)
+            if bare:
+                candidates = [bare.group(1).zfill(5)]
+        if not candidates:
+            # Only a labelled branch or HEAD OFFICE on the next line qualifies.
+            # Never consume a standalone number from the next OCR line.
+            for pj, following, _ in rows[i + 1:i + 3]:
+                if pj != pi or buyer_re.search(following) or buyer_tax(following):
+                    break
+                if head_re.search(following):
+                    candidates = ['00000']
+                    break
+                matches = branch_value_after_label.findall(following)
+                if matches:
+                    candidates = [v.zfill(5) for v in matches]
+                    break
+        if len(set(candidates)) == 1:
+            value = candidates[0]
+            vendor_branch_debug('EXPLICIT_TAX_INVOICE_ISSUER', pdf_path=str(pdf_path or ''),
+                                text=txt, result=value, evidence='issuer_branch_label')
+            return value
+        vendor_branch_debug('EXPLICIT_ISSUER_UNRESOLVED', pdf_path=str(pdf_path or ''),
+                            text=txt, candidates=candidates)
+
+    # Seller header office declaration can be on a separate line from the
+    # supplier name (NITTO MATEX: HEAD OFFICE : NO. 700/611).
+    # Do not apply to headers listing several offices/branches; those need
+    # explicit issuing evidence or a marked checkbox.
+    first_buyer = next((i for i, (_, text, _) in enumerate(rows)
+                        if buyer_re.search(text) or buyer_tax(text)), len(rows))
+    seller_prefix = rows[:first_buyer]
+    seller_offices = [(pi, text, rect) for pi, text, rect in seller_prefix
+                      if head_re.search(text)]
+    seller_other_branches = [(pi, text, rect) for pi, text, rect in seller_prefix
+                             if number_re.search(text) and
+                             any(v != '00000' for v in parse_options(text))]
+    if seller_offices and not seller_other_branches:
+        vendor_branch_debug('SELLER_HEADER_UNIQUE_HEAD_OFFICE',
+                            pdf_path=str(pdf_path or ''),
+                            evidence=[text for _, text, _ in seller_offices],
+                            result='00000')
+        return '00000'
+
+    # Explicit supplier-name anchor, restricted to top-of-page, excludes buyer rows.
+    # This remains below the explicit issuing-branch priority.
+    supplier_head_rows = []
+    supplier_tokens = [w for w in re.findall(r"[A-Za-z]{4,}|[ก-๙]{4,}", str(supplier_name or '').upper())
+                       if w not in {'COMPANY', 'LIMITED', 'PUBLIC', 'บริษัท', 'จำกัด'}]
+    for pi, txt, rect in rows:
+        if buyer_re.search(txt) or any(cid in re.sub(r"\D", "", txt) for cid in customer_ids):
+            continue
+        if not head_re.search(txt):
+            continue
+        if rect and rect[1] > 2.0:  # top header, page coordinates in inches
+            continue
+        if supplier_tokens and any(token in txt.upper() for token in supplier_tokens):
+            supplier_head_rows.append({'page': pi+1, 'text': txt, 'bounds': rect})
+    if supplier_head_rows:
+        vendor_branch_debug('SELLER_NAME_HEAD_OFFICE', pdf_path=str(pdf_path or ''),
+                            matches=supplier_head_rows, result='00000', evidence='supplier_name_anchor')
+        return '00000'
+
+    # A seller's company-name line explicitly marked HEAD OFFICE is stronger
+    # evidence than branch numbers in the buyer's INVOICE TO block.
+    # Restrict this to the vendor header BEFORE the first buyer-zone marker.
+    # This is deliberately generic: it does not hardcode DAISIN or any tax ID.
+    seller_header = []
+    for pi, txt, rect in rows:
+        if buyer_re.search(txt) or any(cid in re.sub(r"\D", "", txt) for cid in customer_ids):
+            break
+        seller_header.append((pi, txt, rect))
+    company_name_re = re.compile(
+        r"บริษัท\s*.+?(?:จำกัด|มหาชน)|\b(?:CO\.?\s*,?\s*LTD\.?|COMPANY\s+LIMITED|PUBLIC\s+COMPANY\s+LIMITED)\b",
+        re.I,
+    )
+    header_name_head_office = [
+        {'page': pi + 1, 'text': txt, 'bounds': rect}
+        for pi, txt, rect in seller_header
+        if head_re.search(txt) and company_name_re.search(txt)
+        and not re.search(r"\b(?:BILL|INVOICE|SHIP|SOLD)\s+TO\b|ผู้ซื้อ|ลูกค้า", txt, re.I)
+    ]
+    # Do not override an explicit issuing-branch declaration later in the
+    # header (e.g. IRC invoices with multiple registered office addresses).
+    header_has_issuer = any(
+        re.search(r"สาขา\s*(?:ที่\s*)?ออก\s*(?:ใบ\s*กำกับ\s*ภาษี|ใบ\s*ส่ง\s*สินค้า|เอกสาร)|ใบ\s*กำกับ\s*ภาษี\s*ออก\s*โดย|TAX\s*INVOICE\s*ISSUING\s*BRANCH", txt, re.I)
+        for _, txt, _ in seller_header
+    )
+    if header_name_head_office and not header_has_issuer:
+        vendor_branch_debug('SELLER_NAME_HEAD_OFFICE',
+                            pdf_path=str(pdf_path or ''),
+                            matches=header_name_head_office, result='00000')
+        print('✅ VendorBranch seller name marked Head Office: 00000')
+        return '00000'
+
     # Seller tax-registration footer: e.g. UNION NIFCO's
     # "สำนักงานใหญ่ TAX ID : 0105531086805" near the bottom of the page.
     # The footer is OUTSIDE the header/vendor-zone used by generic detection.
@@ -2689,58 +2816,6 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None,
             print('✅ VendorBranch seller Tax ID + Head Office: 00000')
             return '00000'
 
-    def buyer_tax(text):
-        digits = clean_tax_id(text)
-        return any(t in digits for t in customer_ids)
-
-    # Highest priority: an explicit seller-issued tax invoice branch statement.
-    # Example: "สาขาที่ออกใบกำกับภาษี : สาขาที่ 00003" (IRC).
-    # This outranks office-address lists and checkbox heuristics.
-    explicit_issuer_label = re.compile(
-        r"สาขา\s*(?:ที่\s*)?ออก\s*(?:ใบ\s*กำกับ\s*ภาษี|ใบ\s*ส่ง\s*สินค้า|เอกสาร)"
-        r"|สาขา\s*ผู้\s*ออก\s*(?:ใบ\s*กำกับ\s*ภาษี|เอกสาร)?"
-        r"|TAX\s*INVOICE\s*ISSUING\s*BRANCH"
-        r"|INVOICE\s*ISSUING\s*BRANCH",
-        re.I,
-    )
-    branch_value_after_label = re.compile(
-        r"(?:สาขา\s*(?:ที่|เลขที่)?|BRANCH\s*(?:NO\.?|NUMBER)?)\s*[:：#-]?\s*(\d{1,5})",
-        re.I,
-    )
-    for i, (pi, txt, _) in enumerate(rows):
-        if not explicit_issuer_label.search(txt):
-            continue
-        if buyer_re.search(txt) or buyer_tax(txt):
-            continue
-        # Search only AFTER the issuer label to avoid unrelated branch codes.
-        tail = txt[explicit_issuer_label.search(txt).end():]
-        candidates = [m.group(1).zfill(5) for m in branch_value_after_label.finditer(tail)]
-        if not candidates:
-            # Some OCR versions omit the second 'สาขาที่' but keep the number.
-            bare = re.match(r"\s*[:：#-]?\s*(\d{1,5})\b", tail)
-            if bare:
-                candidates = [bare.group(1).zfill(5)]
-        if not candidates:
-            # OCR may put the value on the following line.
-            for pj, following, _ in rows[i + 1:i + 3]:
-                if pj != pi or buyer_re.search(following) or buyer_tax(following):
-                    break
-                matches = branch_value_after_label.findall(following)
-                if matches:
-                    candidates = [v.zfill(5) for v in matches]
-                    break
-                bare = re.fullmatch(r"\s*0*\d{1,5}\s*", following)
-                if bare:
-                    candidates = [following.strip().zfill(5)]
-                    break
-        if len(set(candidates)) == 1:
-            value = candidates[0]
-            vendor_branch_debug('EXPLICIT_TAX_INVOICE_ISSUER', pdf_path=str(pdf_path or ''),
-                                text=txt, result=value)
-            print(f'✅ VendorBranch explicit tax invoice issuing branch: {value}')
-            return value
-        vendor_branch_debug('EXPLICIT_ISSUER_UNRESOLVED', pdf_path=str(pdf_path or ''),
-                            text=txt, candidates=candidates)
 
     # Only a branch stamp next to an invoice NUMBER is issuing evidence.
     # Never treat a branch address in the vendor letterhead as the issuer.
@@ -2845,11 +2920,26 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None,
                 if len(page_options) != 2:
                     vendor_branch_debug('IMAGE_SKIP_AMBIGUOUS_OPTIONS', pdf_path=str(pdf_path or ''), page=pi+1, count=len(page_options))
                     continue
-                images = convert_from_path(pdf_path, dpi=200, first_page=pi+1,
-                                           last_page=pi+1, grayscale=True)
-                if not images:
-                    continue
-                gray = np.asarray(images[0].convert('L'))
+                # PyMuPDF renders locally without Poppler. Fallback to the
+                # original pdf2image path when PyMuPDF is not installed.
+                try:
+                    import fitz
+                    with fitz.open(str(pdf_path)) as doc:
+                        if pi >= len(doc):
+                            raise IndexError(f'PDF page {pi+1} not found')
+                        pix = doc[pi].get_pixmap(matrix=fitz.Matrix(200/72, 200/72),
+                                                 colorspace=fitz.csGRAY, alpha=False)
+                        gray = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width).copy()
+                    vendor_branch_debug('IMAGE_RENDER_BACKEND', pdf_path=str(pdf_path or ''),
+                                        page=pi+1, backend='pymupdf')
+                except ImportError:
+                    images = convert_from_path(pdf_path, dpi=200, first_page=pi+1,
+                                               last_page=pi+1, grayscale=True)
+                    if not images:
+                        continue
+                    gray = np.asarray(images[0].convert('L'))
+                    vendor_branch_debug('IMAGE_RENDER_BACKEND', pdf_path=str(pdf_path or ''),
+                                        page=pi+1, backend='pdf2image')
                 h, w = gray.shape
                 bw_img = cv2.threshold(gray, 195, 255, cv2.THRESH_BINARY_INV)[1]
                 contours, _ = cv2.findContours(bw_img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
