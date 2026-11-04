@@ -32,12 +32,18 @@ from config import (
 # 📥 INPUT Parameter
 # ====================================================
 
-if len(sys.argv) < 3:
-    print("❌ Usage: python 03_430000848.py <today_str> <branch_email>")
+if len(sys.argv) < 2:
+    print("❌ Usage: python 03_430000848.py <branch_email>")
     sys.exit(2)
 
-today_str = sys.argv[1]
-branch_email = sys.argv[2]
+# สร้างวันที่และเวลาอัตโนมัติ
+today_str = datetime.now().strftime("%Y%m%d_%H%M%S") + "_OCR"
+
+# รับเฉพาะ Branch จาก Parameter
+branch_email = sys.argv[1]
+
+print(f"📅 OCR Folder: {today_str}")
+print(f"🏢 Branch: {branch_email}")
 
 
 # ====================================================

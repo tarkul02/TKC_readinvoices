@@ -95,3 +95,9 @@ poppler-24.08.0/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+
+# =========================
+# DebugVendorBranch
+# =========================
+DebugVendorBranch/
