@@ -1,23 +1,49 @@
 
-# Data
+# ==========================================
+# Data / Excel
+# ==========================================
 pandas>=2.2.0
 openpyxl>=3.1.2
 
-# PDF
+# ==========================================
+# PDF Processing
+# ==========================================
 PyPDF2>=3.0.1
 pdf2image>=1.17.0
 Pillow>=11.0.0
 
+# ==========================================
 # Image Processing / Checkbox Detection
+# ==========================================
 opencv-python>=4.10.0
 numpy>=1.26.0
 
+# ==========================================
 # Azure AI Document Intelligence
+# ==========================================
 azure-ai-documentintelligence>=1.0.2
 azure-core>=1.35.0
 
-# Date
+# ==========================================
+# Date Processing
+# ==========================================
 python-dateutil>=2.9.0
 
-# Environment
+# ==========================================
+# Environment / Configuration
+# ==========================================
 python-dotenv>=1.0.1
+
+# ==========================================
+# Email / SMTP
+# ==========================================
+# smtplib - Built-in Python
+# ssl     - Built-in Python
+# email   - Built-in Python
+
+# ==========================================
+# Standard Python Libraries
+# ==========================================
+# os, sys, re, json, shutil, subprocess
+# datetime, decimal, pathlib, time, io
+# All included with Python
