@@ -2047,6 +2047,16 @@ def extract_tax_remark(invoices, ocr_cache=None):
 
                 remark = match.group(0)
                 return remark
+    
+    
+    # Business rule: BOI code in invoice line items
+    # Examples: [BOI06], BOI06, BOI 06, BOI-06
+    if re.search(
+        r"(?<![A-Za-z0-9])\[?BOI[\s-]*\d{1,3}\]?(?![A-Za-z0-9])",
+        full_text,
+        re.IGNORECASE
+    ):
+        return "หักภาษี ณ ที่จ่าย"
 
     return ""
 
