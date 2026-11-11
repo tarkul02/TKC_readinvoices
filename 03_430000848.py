@@ -299,7 +299,6 @@ DEFAULT_PATTERN_CONFIG = {
         {"name": "E22000", "regex": r"(E22000\d{5})"},
         {"name": "P22000", "regex": r"(P22000\d{4})"},
         {"name": "T22000", "regex": r"(T22000\d{4})"},
-        {"name": "K22000 PC LOCAL", "regex": r"(K22000\d{5})"}
     ],
     "vendor_branch_patterns": [
         {"name": "Thai Branch", "regex": r"สาขา(?:ที่|เลขที่)?\s*[:：]?\s*(\d{1,10})"},
@@ -352,7 +351,7 @@ INVOICE_PATTERNS = [p["regex"] for p in pattern_config.get("invoice_patterns", D
 # ====================================================
 RAW_PO_CONFIG = pattern_config.get("po_patterns", DEFAULT_PATTERN_CONFIG["po_patterns"])
 
-# ใช้เก็บ config PO ที่แยกตาม Company Branch ภายใน เช่น {"0000": [...], "1000": [...]}
+# ใช้เก็บ config PO ที่แยกตาม Company Branch ภายใน เช่น {"00000": [...], "00001": [...]}
 PO_PATTERN_CONFIG = RAW_PO_CONFIG if isinstance(RAW_PO_CONFIG, dict) else {}
 
 # PO_PATTERNS ใช้เป็น generic fallback และรองรับ clean_po_from_field() เดิม
@@ -391,8 +390,8 @@ SUPPLIER_NAME_PATTERNS = [p["regex"] for p in pattern_config.get("supplier_name_
 # ====================================================
 # 📌 PO Branch Rules
 # ====================================================
-# 0000 = บางพลี สำนักงานใหญ่
-# 1000 = ปราจีน สาขา 1
+# 00000 = บางพลี สำนักงานใหญ่
+# 00001 = ปราจีน สาขา 1
 #
 # หมายเหตุ:
 # - ค้นหา PO ของ branch ที่ส่งเข้ามาก่อน
@@ -400,60 +399,44 @@ SUPPLIER_NAME_PATTERNS = [p["regex"] for p in pattern_config.get("supplier_name_
 # - ถ้าเจอ PO ของอีก branch จะเก็บ PO ไว้ และเพิ่ม Emessage
 #   "PO does not match Company branch"
 PO_BRANCH_PATTERNS = {
-    "0000": [
+    "00000": [
         r"(41000\d{5})",
         r"(45000\d{5})",
+        r"(46000\d{5})",
         r"(P22000\d{4})",
         r"(T22000\d{4})",
     ],
-    "1000": [
+    "00001": [
         r"(43000\d{5})",
         r"(44000\d{5})",
         r"(E22000\d{5})",
-        r"(K22000\d{5})",
-        r"(46000\d{5})",
     ],
 }
 
 
 def normalize_internal_company_branch(value):
-    """รหัส Company Branch ภายในที่ใช้กับ CLI/PO: 0000 หรือ 1000 ฯลฯ"""
-    text = str(value or "").strip()
+    """ใช้รหัสสาขา 5 หลัก โดยยังรองรับรหัสเดิมจาก CLI"""
+    text = str(value if value is not None else "").strip()
     if not text:
         return ""
-    # รองรับกรณีมีการส่ง display code 00000/00001 เข้ามา
-    display_to_internal = {
-        "00000": "0000",
-        "00001": "1000",
-        "00002": "2000",
-        "00003": "3000",
-        "00004": "4000",
-    }
-    if text in display_to_internal:
-        return display_to_internal[text]
-    if text.isdigit() and len(text) <= 4:
-        return text.zfill(4)
-    return text
-
-
-def company_branch_to_display(value):
-    """
-    แปลงรหัส Company/Customer Branch ภายในเป็นรหัสสาขา 5 หลักสำหรับ Excel
-    0000 -> 00000
-    1000 -> 00001
-    2000 -> 00002
-    3000 -> 00003
-    4000 -> 00004
-    """
-    text = normalize_internal_company_branch(value)
-    mapping = {
+    legacy_codes = {
         "0000": "00000",
         "1000": "00001",
         "2000": "00002",
         "3000": "00003",
         "4000": "00004",
     }
-    return mapping.get(text, "")
+    if text in legacy_codes:
+        return legacy_codes[text]
+    if text.isdigit() and len(text) <= 5:
+        return text.zfill(5)
+    return text
+
+
+def company_branch_to_display(value):
+    """คืนรหัส Company/Customer Branch 5 หลักสำหรับ Excel"""
+    text = normalize_internal_company_branch(value)
+    return text if text in {"00000", "00001", "00002", "00003", "00004"} else ""
 
 
 def get_po_patterns_by_branch(branch_code):
@@ -468,11 +451,8 @@ def get_po_patterns_by_branch(branch_code):
 
     # ใช้ config จาก patternsInvoice.json ก่อน
     if isinstance(PO_PATTERN_CONFIG, dict):
-        # รองรับ JSON แบบเดิม (0000/1000) และแบบ display 5 หลัก (00000/00001)
-        display_code = company_branch_to_display(branch_code)
+        # ใช้รหัสสาขา 5 หลักตรงกับ patternsInvoice.json
         branch_items = PO_PATTERN_CONFIG.get(branch_code, [])
-        if not branch_items and display_code:
-            branch_items = PO_PATTERN_CONFIG.get(display_code, [])
         patterns = [
             p["regex"]
             for p in branch_items
@@ -488,10 +468,10 @@ def get_po_patterns_by_branch(branch_code):
 def get_other_branch(branch_code):
     branch_code = normalize_internal_company_branch(branch_code)
 
-    if branch_code == "0000":
-        return "1000"
-    if branch_code == "1000":
-        return "0000"
+    if branch_code == "00000":
+        return "00001"
+    if branch_code == "00001":
+        return "00000"
 
     return ""
 
@@ -967,13 +947,13 @@ def validate_Company_branch(Company_address, input_branch):
     ตรวจสอบ Company Branch จากที่อยู่ เทียบกับค่าที่ส่งเข้ามาตอนรันโปรแกรม
 
     ตัวอย่าง:
-    python script.py testfile 0000
+    python script.py 00000
 
     ถ้า CompanyAddress มีเลข 370
-        expected = 0000
+        expected = 00000
 
     ถ้าไม่มี 370
-        expected = 1000
+        expected = 00001
 
     return:
         Company_branch
@@ -986,9 +966,9 @@ def validate_Company_branch(Company_address, input_branch):
 
     # กำหนด branch ที่ควรจะเป็นจาก Address
     if re.search(r"\b(?:370|10570)\b", Company_address):
-        expected_branch = "0000"
+        expected_branch = "00000"
     else:
-        expected_branch = "1000"
+        expected_branch = "00001"
 
     is_correct = input_branch == expected_branch
 

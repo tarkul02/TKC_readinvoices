@@ -9,15 +9,14 @@
     "00000": [
       {"name": "PO41000 LOCAL", "regex": "(41000\\d{5})"},
       {"name": "PO45000 LOCAL", "regex": "(45000\\d{5})"},
+      {"name": "PO46000 LOCAL", "regex": "(46000\\d{5})"},
       {"name": "P22000 LOCAL", "regex": "(P22000\\d{4})"},
       {"name": "T22000 LOCAL", "regex": "(T22000\\d{4})"}
     ],
     "00001": [
       {"name": "PO43000 LOCAL", "regex": "(43000\\d{5})"},
       {"name": "PO44000 LOCAL", "regex": "(44000\\d{5})"},
-      {"name": "E22000 LOCAL", "regex": "(E22000\\d{5})"},
-      {"name": "K22000 PC LOCAL", "regex": "(K22000\\d{5})"},
-      {"name": "PO46000 LOCAL", "regex": "(46000\\d{5})"}
+      {"name": "E22000 LOCAL", "regex": "(E22000\\d{5})"}
     ]
   },
   "vendor_branch_patterns": [
