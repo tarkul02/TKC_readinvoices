@@ -57,6 +57,7 @@ input_folder = paths["input_folder"]
 temp_folder = paths["temp_folder"]
 output_excel = paths["output_excel"]
 dest_folder = paths["dest_folder"]
+pdf_folder = os.path.join(dest_folder, "PDF")
 REPORT_TXT_FOLDER = paths["report_txt_folder"]
 
 # Matching_TextFile configuration
@@ -66,11 +67,8 @@ MATCHING_OUTPUT_ROOT = os.path.join(
     MATCHING_TEXT_FOLDER,
     "OutputExcel"
 )
-MATCHING_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
-MATCHING_OUTPUT_FOLDER = os.path.join(
-    MATCHING_OUTPUT_ROOT,
-    MATCHING_TIMESTAMP
-)
+MATCHING_TIMESTAMP = today_str
+MATCHING_OUTPUT_FOLDER = dest_folder
 
 # Function Matching_TextFile.py will use these paths to read the summary invoice report and master supplier file.
 MATCHING_SCRIPT = paths["matching_script_path"]
@@ -269,6 +267,7 @@ key = AZURE_KEY
 os.makedirs(temp_folder, exist_ok=True)
 os.makedirs(os.path.dirname(output_excel), exist_ok=True)
 os.makedirs(dest_folder, exist_ok=True)
+os.makedirs(pdf_folder, exist_ok=True)
 
 client = DocumentIntelligenceClient(
     endpoint=endpoint,
@@ -4370,7 +4369,7 @@ for input_pdf in pdf_list:
             add_or_merge_row(all_data, invoice_data)
         
     pdf_name = os.path.basename(input_pdf)
-    dest_path = os.path.join(dest_folder, pdf_name)
+    dest_path = os.path.join(pdf_folder, pdf_name)
 
     if os.path.exists(dest_path):
         print(f"⚠️ File already exists, skip move → {dest_path}")
