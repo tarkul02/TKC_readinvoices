@@ -24,13 +24,13 @@ EXCEL_PATH = (
 
     # r"C:\TKC\TKC_readinvoices\INPUT\Process3\00000\OutputExcel\text\Excel\OCR\All_Invoices.xlsx"
 
-    r"C:\TKC\Document\INPUT\Process3\00000\OutputExcel\20261112_220831\All_Invoices.xlsx"
+    r"C:\TKC\Document\INPUT\Process3\00000\OutputExcel\NO4\All_Invoices.xlsx"
 
 )
 
 TEXT_PATH = (
 
-    r"C:\TKC\Document\INPUT\Process3\00000\OutputExcel\20261112_220831\summary invoice report_20260620.txt"
+    r"C:\TKC\Document\INPUT\Process3\00000\OutputExcel\NO4\summary invoice report_20260620.txt"
 
 )
 
@@ -42,7 +42,7 @@ MASTER_PATH = (
 
 OUTPUT_EXCEL_PATH = (
 
-    r"C:\TKC\Document\INPUT\Process3\00000\OutputExcel\20261112_220831\ocr_output_matched_ุ6.xlsx"
+    r"C:\TKC\Document\INPUT\Process3\00000\OutputExcel\NO4\ocr_output_matched_test1.xlsx"
 
 )
 
@@ -1222,7 +1222,7 @@ def validate_excel(
 
             errors.append(
 
-                "VATAmount NOT MATCHING"
+                "VATAmount is NOT MATCHING"
 
             )
 
