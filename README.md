@@ -148,22 +148,95 @@ print(paths["output_excel"])
 
 ## 5. Run Program
 
-รูปแบบการรันสคริปต์ประมวลผลเดิม (ขึ้นกับสคริปต์แต่ละตัว):
-
-```bash
-python <script_name.py> <today_str> <branch_email>
-```
-
-ตัวอย่าง:
+คำสั่งด้านล่างเป็นตัวอย่างสำหรับ PowerShell ให้รันจากโฟลเดอร์ Source Code เพื่อให้โปรแกรมอ่าน `patternsInvoice.json` ได้ถูกต้อง:
 
 ```powershell
-python .\03_430000848.py testfile_444454 1100
+cd C:\TKC\TKC_readinvoices
 ```
 
-- `testfile_444454`: ชื่อ Folder/Run Parameter
-- `1100`: Branch Email / Branch Code
+ตัวอย่างใช้ `MAIN_PATH=C:\TKC\Document` และ Branch `1100` ให้เปลี่ยนตามเครื่องที่ใช้งาน
 
-> คำสั่งสร้างโฟลเดอร์ `config.py` รับ **3 พารามิเตอร์** รวม `process_name` ส่วนสคริปต์ OCR ตัวอย่างข้างต้นรับ **2 พารามิเตอร์** ตามรูปแบบเดิม ต้องตรวจสอบว่าสคริปต์ OCR เรียก `get_paths()` โดยระบุ Process Name ถูกต้อง
+### 5.1 รัน OCR และ Matching ต่อเนื่อง (`03_430000848.py`)
+
+เตรียมไฟล์ก่อนรัน:
+
+- ตั้งค่า `AZURE_ENDPOINT`, `AZURE_KEY`, `MAIN_PATH` ใน `.env` และติดตั้ง dependencies/Poppler ตามหัวข้อด้านบน
+- วาง PDF และ TXT ของรอบที่จะตรวจใน `C:\TKC\Document\INPUT\Process3\1100` โดยตรง
+- วาง Master ที่ `C:\TKC\Document\MasterSuplier\Master Vendor Name (MAT)_TH_ENG.xlsx`
+- ตั้งค่าอีเมลตามหัวข้อ 5.3 เนื่องจาก Matching เรียกส่งอีเมลหลังสร้างผลลัพธ์
+
+รันโดยส่ง **รหัสสาขาเพียง 1 ตัว**:
+
+```powershell
+python .\03_430000848.py 1100
+```
+
+โปรแกรมสร้างชื่อรอบอัตโนมัติเป็น `YYYYMMDD_HHMMSS` เช่น `20261104_121430` ไม่มีท้าย `_OCR` จึงไม่ต้องส่งวันที่เป็น parameter โปรแกรมอ่าน PDF ใน Input Folder และเลือก TXT ที่แก้ไขล่าสุดในโฟลเดอร์เดียวกันสำหรับ Matching ควรตรวจว่า TXT ล่าสุดตรงกับ PDF ที่จะประมวลผล
+
+โครงสร้างผลลัพธ์ของรอบนั้น:
+
+```text
+C:\TKC\Document\INPUT\Process3\1100\OutputExcel\20261104_121430\
+├── PDF\                         # PDF ที่ประมวลผลแล้วถูกย้ายมาที่นี่
+├── Excel\
+│   └── OCR\
+│       └── All_Invoices.xlsx     # Excel จาก OCR
+├── All_Invoices.xlsx             # สำเนาสำหรับ Matching
+├── All_Invoices_matched.xlsx     # ผลตรวจสอบและทำสี
+└── summary invoice report.txt    # ชื่อตาม TXT ต้นฉบับที่ย้ายมาหลัง Matching สำเร็จ
+```
+
+OCR และ Matching ใช้โฟลเดอร์รอบเดียวกัน เมื่อ Matching และทำสีสำเร็จจะย้าย TXT เข้ามาในโฟลเดอร์รอบ แล้วเรียกส่งอีเมลพร้อมไฟล์ matched หากส่งอีเมลไม่สำเร็จ Excel ที่สร้างและ TXT ที่ย้ายแล้วจะยังอยู่ ให้ตรวจผลลัพธ์ก่อนรันซ้ำ
+
+### 5.2 รัน Matching แยก (`Matching_TextFile.py`)
+
+ใช้เมื่อต้องการตรวจ Excel จาก OCR ที่มีอยู่แล้ว โดยไม่เรียก Azure OCR ใหม่ ส่ง path ให้ครบ **4 ตัวตามลำดับ**:
+
+```text
+python Matching_TextFile.py <excel_path> <text_path> <master_path> <output_excel_path>
+```
+
+| Parameter | ความหมาย |
+|---|---|
+| `excel_path` | Excel จาก OCR ที่ต้องการตรวจ มีคอลัมน์ `VendorAddress` และ `Address` พร้อมคอลัมน์ Invoice อื่นตามรูปแบบโปรแกรม |
+| `text_path` | TXT Summary Report สำหรับรอบนั้น |
+| `master_path` | Excel Master Supplier |
+| `output_excel_path` | ชื่อไฟล์ Excel ผลลัพธ์ ใช้คนละชื่อกับไฟล์ต้นฉบับ |
+
+ตัวอย่าง PowerShell ใช้ตัวแปรเพื่อลดการพิมพ์ path ซ้ำ:
+
+```powershell
+$batchFolder = "C:\TKC\Document\INPUT\Process3\1100\OutputExcel\20261104_121430"
+$excelPath = Join-Path $batchFolder "All_Invoices.xlsx"
+$textPath = Join-Path $batchFolder "summary invoice report.txt"
+$masterPath = "C:\TKC\Document\MasterSuplier\Master Vendor Name (MAT)_TH_ENG.xlsx"
+$outputPath = Join-Path $batchFolder "All_Invoices_rechecked.xlsx"
+
+python .\Matching_TextFile.py $excelPath $textPath $masterPath $outputPath
+```
+
+เปลี่ยนชื่อ TXT และโฟลเดอร์รอบให้ตรงกับไฟล์จริง ตัวอย่างใช้ TXT ที่อยู่ในโฟลเดอร์ผลลัพธ์แล้ว โปรแกรมจึงไม่ย้ายซ้ำ หาก TXT อยู่คนละโฟลเดอร์ โปรแกรมจะย้ายไปอยู่ข้าง Excel ผลลัพธ์หลังตรวจสอบและทำสีสำเร็จ โดยจะหยุดหากมี TXT ชื่อเดียวกันอยู่ที่ปลายทางแล้ว
+
+- ที่อยู่ผู้ขายอ่านตามชื่อคอลัมน์ `VendorAddress` และที่อยู่บริษัทผู้ซื้ออ่านจาก `Address` ไม่ขึ้นกับลำดับคอลัมน์
+- Matching ตรวจข้อมูล เพิ่ม `Emessage` และทำสี โดยคงค่าที่อยู่จาก OCR ไม่แทนด้วยที่อยู่จาก Master
+- โปรแกรมเรียกส่งอีเมลหลังทำสีและจัดการ TXT แล้ว เช่นเดียวกับการรันผ่าน OCR
+- หากไม่ส่ง parameter โปรแกรมจะใช้ path แบบคงที่ที่ต้น `Matching_TextFile.py` ซึ่งอาจชี้รอบเก่า แนะนำให้ระบุครบทั้ง 4 ตัวทุกครั้ง
+
+### 5.3 ตั้งค่าอีเมลสำหรับทั้งสองคำสั่ง
+
+กำหนดใน `.env` ข้าง Source Code โดยกรอกค่าจริงเฉพาะในเครื่อง ไม่ Commit ข้อมูลลับ:
+
+```dotenv
+GMAIL_FROM_EMAIL=your-account@gmail.com
+GMAIL_TO_EMAIL=recipient@example.com
+GMAIL_APP_PASSWORD=YOUR_APP_PASSWORD
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+```
+
+`GMAIL_APP_PASSWORD` ใช้ App Password ของบัญชีผู้ส่ง และ `GMAIL_TO_EMAIL` รองรับหลายผู้รับคั่นด้วย comma หรือ semicolon การรัน Matching ปัจจุบันเรียกส่งอีเมลเสมอ หากผู้รับหรือ App Password ไม่ครบจะหยุดพร้อมแจ้งข้อผิดพลาด แม้ไฟล์ผลลัพธ์อาจสร้างเสร็จแล้ว
+
+> `config.py` สำหรับสร้างโฟลเดอร์ล่วงหน้ายังรับ 3 parameter ตามหัวข้อ 4.1 ส่วน `03_430000848.py` รับเฉพาะรหัสสาขา คำสั่งของสคริปต์อื่น เช่น `07_430000840.py` ให้ตรวจรูปแบบของแต่ละไฟล์ก่อนรัน
 
 ## 6. Main Project Structure
 
