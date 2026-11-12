@@ -194,8 +194,11 @@ def supplier_names_match(left, right):
 
 
 def first_address_word(value):
-    # Keep comma-separated house numbers together before splitting the street.
-    text = re.sub(r"[ \t]*,[ \t]*", ",", str(value or "").strip(" \t"))
+    # Remove leading OCR quote artifacts without changing the house number.
+    text = str(value or "").lstrip(" \t'\"‘’“”")
+    # Join commas between house numbers only: a trailing comma must not join
+    # the house number to the following street word (e.g. "370, MOO").
+    text = re.sub(r"(?<=[0-9])[ \t]*,[ \t]*(?=[0-9])", ",", text)
     parts = text.split(" ", 1)
     return parts[0].replace("\t", "").casefold()
 

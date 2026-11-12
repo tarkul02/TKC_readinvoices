@@ -93,6 +93,23 @@ class SupplierMatchingTests(unittest.TestCase):
 
 
 class AddressMatchingTests(unittest.TestCase):
+    def test_leading_ocr_quote_does_not_invent_missing_digits(self):
+        rows = [{'BranchCode': '', 'StreetNo': '37 Road', 'PostCode': '10570'}]
+        for quote in ['‘', '’', "'", '“', '”', '"']:
+            with self.subTest(quote=quote):
+                self.assertEqual(address_matching_errors(quote + '37 Road 10570', rows, None, True), [])
+        rows[0]['StreetNo'] = '370 Road'
+        self.assertEqual(address_matching_errors('‘37 Road 10570', rows, None, True),
+                         ['Supplier Address is NOT MATCHING'])
+
+    def test_trailing_house_comma_does_not_join_following_word(self):
+        rows = [{'BranchCode': '00000', 'StreetNo': '370 หมู่ 17', 'PostCode': '10570'}]
+        for address in ['370, MOO 17 10570', '370, หมู่ 17 10570', '370,\t MOO 17 10570']:
+            with self.subTest(address=address):
+                self.assertEqual(address_matching_errors(address, rows, '00000'), [])
+        self.assertEqual(address_matching_errors('370, MOO 17 10571', rows, '00000'),
+                         ['Name Address is NOT MATCHING'])
+
     def test_name_address_ignores_commas_in_comparison(self):
         rows = [{'BranchCode': '00000', 'StreetNo': '1,234 Road', 'PostCode': '10,570'}]
         self.assertEqual(address_matching_errors('1234 Road 10,570', rows, '00000'), [])
