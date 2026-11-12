@@ -7,17 +7,18 @@
   ],
   "po_patterns": {
     "00000": [
-      {"name": "PO41000 LOCAL", "regex": "(41000\\d{5})"},
-      {"name": "PO45000 LOCAL", "regex": "(45000\\d{5})"},
-      {"name": "P22000 LOCAL", "regex": "(P22000\\d{4})"},
-      {"name": "T22000 LOCAL", "regex": "(T22000\\d{4})"}
+      {"name": "41000 LOCAL", "regex": "(?<![A-Z0-9])(?:PO\\s*)?(41000\\d{5})(?![A-Z0-9])"},
+      {"name": "42000 LOCAL", "regex": "(?<![A-Z0-9])(?:PO\\s*)?(42000\\d{5})(?![A-Z0-9])"},
+      {"name": "45000 LOCAL", "regex": "(?<![A-Z0-9])(?:PO\\s*)?(45000\\d{5})(?![A-Z0-9])"},
+      {"name": "P22000 LOCAL", "regex": "(?<![A-Z0-9])(?:PO\\s*)?(P22000\\d{4})(?![A-Z0-9])"},
+      {"name": "T22000 LOCAL", "regex": "(?<![A-Z0-9])(?:PO\\s*)?(T22000\\d{4})(?![A-Z0-9])"}
     ],
     "00001": [
-      {"name": "PO43000 LOCAL", "regex": "(43000\\d{5})"},
-      {"name": "PO44000 LOCAL", "regex": "(44000\\d{5})"},
-      {"name": "E22000 LOCAL", "regex": "(E22000\\d{5})"},
-      {"name": "K22000 PC LOCAL", "regex": "(K22000\\d{5})"},
-      {"name": "PO46000 LOCAL", "regex": "(46000\\d{5})"}
+      {"name": "43000 LOCAL", "regex": "(?<![A-Z0-9])(?:PO\\s*)?(43000\\d{5})(?![A-Z0-9])"},
+      {"name": "44000 LOCAL", "regex": "(?<![A-Z0-9])(?:PO\\s*)?(44000\\d{5})(?![A-Z0-9])"},
+      {"name": "46000 LOCAL", "regex": "(?<![A-Z0-9])(?:PO\\s*)?(46000\\d{5})(?![A-Z0-9])"},
+      {"name": "K22000 LOCAL", "regex": "(?<![A-Z0-9])(?:PO\\s*)?(K22000\\d{4})(?![A-Z0-9])"},
+      {"name": "E22000 LOCAL", "regex": "(?<![A-Z0-9])(?:PO\\s*)?(E22000\\d{4})(?![A-Z0-9])"}
     ]
   },
   "vendor_branch_patterns": [
