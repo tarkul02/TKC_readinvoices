@@ -37,7 +37,7 @@ if len(sys.argv) < 2:
     sys.exit(2)
 
 # สร้างวันที่และเวลาอัตโนมัติ
-today_str = datetime.now().strftime("%Y%m%d_%H%M%S") + "_OCR"
+today_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # รับเฉพาะ Branch จาก Parameter
 branch_email = sys.argv[1]
