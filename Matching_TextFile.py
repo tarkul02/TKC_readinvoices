@@ -229,6 +229,44 @@ def address_matches_master(address, master_row):
     return True
 
 
+def normalize_master_branch(value):
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    branch = normalize_branch(value)
+    return branch.zfill(5) if branch.isascii() and branch.isdigit() else branch
+
+
+def address_matching_errors(address, master_rows, branch, supplier=False):
+    mismatch = "Supplier Address is NOT MATCHING" if supplier else "Name Address is NOT MATCHING"
+    branch_rows = [r for r in master_rows if clean(r.get("BranchCode"))]
+    if branch_rows:
+        if not clean(branch):
+            # Empty-field validation owns this message; do not duplicate it.
+            return []
+        master_rows = [r for r in branch_rows
+                       if normalize_master_branch(r["BranchCode"]) == normalize_master_branch(branch)]
+    if not any(address_matches_master(address, row) for row in master_rows):
+        return [mismatch]
+    return []
+
+
+def validate_empty_branches(record, master_records):
+    """Report empty branch fields once, adding skip context only when needed."""
+    messages = []
+    for field, tax_field, label in (
+        ("Branch", "TaxID", "Address"),
+        ("VendorBranch", "VendorTaxId", "Supplier Address"),
+    ):
+        if field not in record or clean(record[field]):
+            continue
+        rows = master_records.get(normalize_tax_id(record.get(tax_field)), [])
+        message = f"{field} is empty"
+        if any(clean(row.get("BranchCode")) for row in rows):
+            message += f"; {label} matching skipped"
+        messages.append(message)
+    return messages
+
+
 def company_name_matches(name, master_en, master_th):
     if not clean(name):
         return False
@@ -440,88 +478,42 @@ def load_master_supplier(master_path):
     ws = wb.active
 
     master_data = {}
-
-    for row in ws.iter_rows(
-
-        min_row=2,
-
-        values_only=True
-
-    ):
-
-        vendor_tax_id = (
-
-            row[3] if len(row) > 3 else None
-
-        )
-
-        supplier_name_en = (
-
-            row[4] if len(row) > 4 else None
-
-        )
-
-        supplier_name_th = (
-
-            row[5] if len(row) > 5 else None
-
-        )
-
-        BranchCode = (
-
-            row[6] if len(row) > 6 else None
-
-        )
-
-        StreetNo = (
-
-            row[7] if len(row) > 7 else None
-
-        )
-
-        postcode = row[8] if len(row) > 8 else None
+    current_tax = None
+    current_record = None
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        values = list(row) + [None] * max(0, 9 - len(row))
+        tax_id, name_en, name_th, branch, street, postcode = values[3:9]
+        tax_key = normalize_tax_id(tax_id)
+        # Repeated headers and separator rows end a continuation block.
+        if clean(tax_id) and not tax_key or not any(clean(v) for v in values):
+            current_tax = current_record = None
+            continue
         if isinstance(postcode, float) and postcode.is_integer():
             postcode = int(postcode)
-
-        tax_key = normalize_tax_id(vendor_tax_id)
-
-        if not tax_key:
-
+        if tax_key:
+            current_tax = tax_key
+        elif not current_tax or current_record is None:
             continue
-
-        master_data.setdefault(
-
-            tax_key, []
-
-        ).append({
-
-            "SupplierName_Master_EN": clean(
-
-                supplier_name_en
-
-            ),
-
-            "SupplierName_Master_TH": clean(
-
-                supplier_name_th
-
-            ),
-
-            "BranchCode": clean(
-
-                BranchCode
-
-            ),
-
-            "StreetNo": clean(
-
-                StreetNo
-
-            ),
-
-            "PostCode": clean(postcode)
-
-        })
+        elif not clean(branch):
+            # Address continuation lines belong to the current branch only.
+            if clean(street):
+                current_record["StreetNo"] = " ".join(
+                    part for part in (current_record["StreetNo"], clean(street)) if part
+                )
+            if clean(postcode):
+                current_record["PostCode"] = clean(postcode)
+            continue
+        if not tax_key:
+            name_en = current_record["SupplierName_Master_EN"]
+            name_th = current_record["SupplierName_Master_TH"]
+        current_record = {
+            "SupplierName_Master_EN": clean(name_en),
+            "SupplierName_Master_TH": clean(name_th),
+            "BranchCode": clean(branch),
+            "StreetNo": clean(street),
+            "PostCode": clean(postcode),
+        }
+        master_data.setdefault(current_tax, []).append(current_record)
 
     wb.close()
 
@@ -555,6 +547,12 @@ MATCHING_MESSAGES = {
     "AmountIncVat is NOT MATCHING",
     "TaxRemark is empty",
     "TaxID is empty",
+    "Address cannot be matched: Branch is empty",
+    "Supplier Address cannot be matched: VendorBranch is empty",
+    "Branch is empty; Address matching skipped",
+    "VendorBranch is empty; Supplier Address matching skipped",
+    "Branch is empty",
+    "VendorBranch is empty",
 }
 
 
@@ -676,6 +674,10 @@ def highlight_excel_errors(excel_path):
         "Address is NOT MATCHING": ["Address"],
         "Supplier Address is NOT MATCHING": ["VendorAddress"],
         "Name Address is NOT MATCHING": ["Address"],
+        "Branch is empty; Address matching skipped": ["Address", "Branch"],
+        "VendorBranch is empty; Supplier Address matching skipped": ["VendorAddress", "VendorBranch"],
+        "Branch is empty": ["Branch"],
+        "VendorBranch is empty": ["VendorBranch"],
         "Name is NOT MATCHING with Master file": ["Name"],
         "VendorBranch is NOT MATCHING": ["VendorBranch"],
         "TotalAmount is NOT MATCHING": ["TotalAmount"],
@@ -928,6 +930,12 @@ def validate_excel(
         if missing_taxid:
             errors.append("TaxID is empty")
 
+        # Own branch-empty messages here, before any TXT matching can skip a row.
+        errors.extend(validate_empty_branches(
+            {header: ws.cell(row=row_number, column=col).value
+             for header, col in column_map.items()}, master_records,
+        ))
+
         # ----------------------------------------------------
 
         # 1. Find TaxInvoiceNo in Summary TXT
@@ -1100,12 +1108,11 @@ def validate_excel(
 
         # Read supplier address by header, matched by VendorTaxId.
         # Compare the first Street token and available five-digit postcode.
-        supplier_address = get_excel_value("VendorAddress")
-        if master_found and not any(
-            address_matches_master(supplier_address, m)
-            for m in master_matches
-        ):
-            errors.append("Supplier Address is NOT MATCHING")
+        if master_found:
+            errors.extend(address_matching_errors(
+                get_excel_value("VendorAddress"), master_matches,
+                get_excel_value("VendorBranch"), supplier=True,
+            ))
 
         # Company Name / Address: Excel Name + Address headers,
         # master keyed by TaxID (master column 4), independently of supplier.
@@ -1120,12 +1127,10 @@ def validate_excel(
                     for m in name_master_matches
                 ):
                     errors.append("Name is NOT MATCHING with Master file")
-                name_address = get_excel_value("Address")
-                if not any(
-                    address_matches_master(name_address, m)
-                    for m in name_master_matches
-                ):
-                    errors.append("Name Address is NOT MATCHING")
+                errors.extend(address_matching_errors(
+                    get_excel_value("Address"), name_master_matches,
+                    get_excel_value("Branch") if "Branch" in column_map else None,
+                ))
 
         # ----------------------------------------------------
 

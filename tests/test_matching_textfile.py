@@ -8,6 +8,7 @@ from openpyxl import Workbook, load_workbook
 from Matching_TextFile import (
     address_matches_master, load_master_supplier, supplier_matching_errors,
     append_emessage, highlight_excel_errors,
+    address_matching_errors, validate_empty_branches,
 )
 
 
@@ -92,6 +93,77 @@ class SupplierMatchingTests(unittest.TestCase):
 
 
 class AddressMatchingTests(unittest.TestCase):
+    def test_empty_branch_validation_without_master_branch(self):
+        record = {'Branch': '', 'TaxID': '123', 'VendorBranch': None, 'VendorTaxId': '123'}
+        for master in ({}, {'123': [{'BranchCode': ''}]}):
+            self.assertEqual(validate_empty_branches(record, master),
+                             ['Branch is empty', 'VendorBranch is empty'])
+        self.assertEqual(validate_empty_branches({'Branch': '00000', 'VendorBranch': 0}, {}), [])
+
+    def test_branch_selection_and_missing_branch(self):
+        rows = [
+            {'BranchCode': '00000', 'StreetNo': '370 Road', 'PostCode': '10570'},
+            {'BranchCode': '00001', 'StreetNo': '555 Road', 'PostCode': '25140'},
+        ]
+        for branch in ['00001', '1', 1, 1.0]:
+            self.assertEqual(address_matching_errors('555 Road 25140', rows, branch), [])
+        self.assertEqual(address_matching_errors('555 Road 25140', rows, '00000'),
+                         ['Name Address is NOT MATCHING'])
+        self.assertEqual(address_matching_errors('555 Road 25140', rows, '00002', True),
+                         ['Supplier Address is NOT MATCHING'])
+        self.assertEqual(address_matching_errors('555 Road 25140', rows, None),
+                         [])
+        self.assertEqual(address_matching_errors('555 Road 25140', rows, '', True),
+                         [])
+        rows = [{'BranchCode': '', 'StreetNo': '555', 'PostCode': '25140'}]
+        self.assertEqual(address_matching_errors('555 Road 25140', rows, None, True), [])
+
+    def test_master_continuation_rows_keep_both_branches(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'master.xlsx'
+            wb = Workbook()
+            ws = wb.active
+            ws.append(['Header'] * 9)
+            ws.append([None, None, None, '123', 'Vendor', 'บริษัท', '00000', '370 Road', 10570])
+            ws.append([None] * 7 + ['District', None])
+            ws.append([None] * 7 + ['Province', None])
+            ws.append([None] * 6 + ['00001', '555 Road', 25140])
+            ws.append([None] * 7 + ['Other District', None])
+            ws.append(['Header'] * 9)
+            ws.append([None] * 6 + ['00002', 'Unrelated', 99999])
+            wb.save(path)
+            wb.close()
+            rows = load_master_supplier(path)['123']
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0]['StreetNo'], '370 Road District Province')
+            self.assertEqual(rows[1]['SupplierName_Master_EN'], 'Vendor')
+            self.assertEqual(rows[1]['BranchCode'], '00001')
+            self.assertEqual(address_matching_errors('555 Road 25140', rows, '00001'), [])
+
+    def test_missing_branch_message_replaces_old_message_and_highlights(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'output.xlsx'
+            wb = Workbook()
+            ws = wb.active
+            ws.append(['Address', 'Branch', 'VendorAddress', 'VendorBranch', 'Emessage'])
+            ws.append(['370', None, '555', None, 'Branch is empty | VendorBranch is empty | Original warning'])
+            messages = validate_empty_branches(
+                {'Branch': None, 'TaxID': '123', 'VendorBranch': '', 'VendorTaxId': '123'},
+                {'123': [{'BranchCode': '00001'}]},
+            )
+            self.assertEqual(messages, ['Branch is empty; Address matching skipped',
+                                        'VendorBranch is empty; Supplier Address matching skipped'])
+            append_emessage(ws['E2'], messages)
+            append_emessage(ws['E2'], messages)
+            self.assertEqual(ws['E2'].value, 'Original warning | ' + ' | '.join(messages))
+            wb.save(path)
+            wb.close()
+            highlight_excel_errors(path)
+            result = load_workbook(path)
+            for cell in result.active[2]:
+                self.assertEqual(cell.fill.fgColor.rgb, '00FFEB9C')
+            result.close()
+
     def test_street_and_postcode_must_match_same_row(self):
         master = {"StreetNo": "123/4 Main Road", "PostCode": "10110"}
         for address, expected in [
