@@ -193,41 +193,40 @@ def supplier_names_match(left, right):
     )
 
 
-def supplier_language_status(ocr_name, reference_name, language):
-    """Compare one language; missing language is distinct from a mismatch."""
-    ocr_part = language_part(ocr_name, language)
-    reference_part = language_part(reference_name, language)
-    if not ocr_part and not reference_part:
-        return "N/A"
-    if not ocr_part:
-        return "NOT FOUND IN OCR"
-    if not reference_part:
-        return "NOT FOUND IN REFERENCE"
-    return "MATCHED" if ocr_part == reference_part else "NOT MATCHING"
-
-
-def supplier_language_errors(ocr_name, reference_names, source):
-    """Return one detailed error only when an available language fails."""
-    statuses = []
-    for reference_name in reference_names:
-        th = supplier_language_status(ocr_name, reference_name, "th")
-        en = supplier_language_status(ocr_name, reference_name, "en")
-        statuses.append((th, en))
-    if not statuses:
-        return []
-    # Multiple master rows for one tax ID: select the best matching row.
-    def score(pair):
-        return (sum(x == "MATCHED" for x in pair),
-                -sum(x not in ("MATCHED", "N/A") for x in pair))
-    th, en = max(statuses, key=score)
-    if all(x in ("MATCHED", "N/A") for x in (th, en)):
-        return []
-    return [f"SupplierName OCR vs {source}: TH {th}, EN {en}"]
-
-
 def first_address_word(value):
-    parts = clean(value).split()
-    return normalize_company_name(parts[0]) if parts else ""
+    parts = str(value or "").strip(" \t").split(" ", 1)
+    return parts[0].replace("\t", "").casefold()
+
+
+def supplier_matching_errors(ocr_name, master_rows, text_name):
+    """Follow OCR -> matching Master row -> Text, with concise messages."""
+    matched_names = []
+    for row in master_rows:
+        name = f'{row["SupplierName_Master_TH"]} {row["SupplierName_Master_EN"]}'
+        if supplier_names_match(ocr_name, name):
+            matched_names.append(name)
+    if not matched_names:
+        return ["SupplierName is NOT MATCHING with Master file"]
+    if not clean(text_name) or all(
+        not supplier_names_match(name, text_name)
+        for name in matched_names
+    ):
+        return ["SupplierName is MATCHING with Master file but NOT MATCHING with Text file"]
+    return []
+
+
+def address_matches_master(address, master_row):
+    """Compare available street/postcode pairs within the same Master row."""
+    street = first_address_word(address)
+    master_street = first_address_word(master_row["StreetNo"])
+    if street and master_street and street != master_street:
+        return False
+    compact_address = re.sub(r"[ \t]", "", str(address or ""))
+    postcode = compact_address[-5:]
+    master_postcode = re.sub(r"[ \t]", "", str(master_row.get("PostCode") or ""))
+    if re.fullmatch(r"[0-9]{5}", postcode) and master_postcode:
+        return postcode == master_postcode
+    return True
 
 
 def company_name_matches(name, master_en, master_th):
@@ -424,6 +423,8 @@ def load_master_supplier(master_path):
 
         Column 8 = StreetNo
 
+        Column 9 = PostCode
+
     """
 
     wb = load_workbook(
@@ -478,6 +479,10 @@ def load_master_supplier(master_path):
 
         )
 
+        postcode = row[8] if len(row) > 8 else None
+        if isinstance(postcode, float) and postcode.is_integer():
+            postcode = int(postcode)
+
         tax_key = normalize_tax_id(vendor_tax_id)
 
         if not tax_key:
@@ -512,7 +517,9 @@ def load_master_supplier(master_path):
 
                 StreetNo
 
-            )
+            ),
+
+            "PostCode": clean(postcode)
 
         })
 
@@ -535,6 +542,9 @@ MATCHING_MESSAGES = {
     "SupplierName is NOT MATCHING",
     "SupplierName is NOT MATCHING with Master file",
     "SupplierName is NOT MATCHING with Text file",
+    "SupplierName ไม่ตรงกับ Master",
+    "SupplierName ตรงกับ Master ไม่ตรงกับ Text",
+    "SupplierName is MATCHING with Master file but NOT MATCHING with Text file",
     "Address is NOT MATCHING",
     "Supplier Address is NOT MATCHING",
     "Name Address is NOT MATCHING",
@@ -551,12 +561,10 @@ MATCHING_MESSAGES = {
 def append_emessage(cell, new_messages):
     """Keep pre-existing messages and append unique matching errors with ' | '."""
     existing = clean(cell.value)
-    # Remove detailed supplier matching errors from previous runs before recomputing.
-    existing = re.sub(
-        r"(?:^|\s*\|\s*)SupplierName OCR vs (?:Master|Text file): "
-        r"TH (?:MATCHED|NOT MATCHING|NOT FOUND IN OCR|NOT FOUND IN REFERENCE|N/A), "
-        r"EN (?:MATCHED|NOT MATCHING|NOT FOUND IN OCR|NOT FOUND IN REFERENCE|N/A)",
-        "", existing, flags=re.IGNORECASE,
+    # Discard legacy detailed supplier messages when recomputing this stage.
+    existing = " | ".join(
+        part for part in existing.split(" | ")
+        if not part.strip().casefold().startswith("suppliername ocr vs ")
     )
     # Older files may contain comma-separated matching messages; never split
     # arbitrary original OCR messages on commas.
@@ -664,6 +672,7 @@ def highlight_excel_errors(excel_path):
         "SupplierName is NOT MATCHING": ["SupplierName"],
         "SupplierName is NOT MATCHING with Master file": ["SupplierName"],
         "SupplierName is NOT MATCHING with Text file": ["SupplierName"],
+        "SupplierName is MATCHING with Master file but NOT MATCHING with Text file": ["SupplierName"],
         "Address is NOT MATCHING": ["Address"],
         "Supplier Address is NOT MATCHING": ["VendorAddress"],
         "Name Address is NOT MATCHING": ["Address"],
@@ -710,26 +719,12 @@ def highlight_excel_errors(excel_path):
         for error_keyword, fields in error_field_map.items():
 
             message_parts = [x.strip().casefold() for x in emessage.split(" | ")]
-            matched_error = (any(x.startswith(error_keyword.casefold()) for x in message_parts)
-                             if error_keyword.startswith("SupplierName OCR vs ")
-                             else error_keyword.casefold() in message_parts)
+            matched_error = error_keyword.casefold() in message_parts
             if matched_error:
 
                 for field in fields:
 
                     mark_cell(row_number, field)
-
-        # Detailed SupplierName messages remain in Emessage, but highlight
-        # only if neither Thai nor English matched for a comparison source.
-        for message in emessage.split(" | "):
-            if not message.startswith(("SupplierName OCR vs Master:", "SupplierName OCR vs Text file:")):
-                continue
-            status_match = re.fullmatch(
-                r"SupplierName OCR vs (?:Master|Text file): TH (MATCHED|NOT MATCHING|NOT FOUND IN OCR|NOT FOUND IN REFERENCE|N/A), EN (MATCHED|NOT MATCHING|NOT FOUND IN OCR|NOT FOUND IN REFERENCE|N/A)",
-                message.strip(), flags=re.IGNORECASE,
-            )
-            if status_match and all(status.upper() != "MATCHED" for status in status_match.groups()):
-                mark_cell(row_number, "SupplierName")
 
     wb.save(excel_path)
 
@@ -1095,28 +1090,19 @@ def validate_excel(
             )
 
         # ----------------------------------------------------
-        # 5. SupplierName: OCR vs Master and OCR vs TXT
-        #    Do not compare TXT SupplierName directly with Master.
+        # 5. SupplierName: OCR -> Master -> TXT.
         # ----------------------------------------------------
         excel_supplier = get_excel_value("SupplierName") if "SupplierName" in column_map else ""
         txt_supplier = txt_record["SupplierName"]
-        if master_found:
-            # Compare OCR to each Master row; never compare TXT directly to Master.
-            master_names = []
-            for master_row in master_matches:
-                en_name = master_row["SupplierName_Master_EN"]
-                th_name = master_row["SupplierName_Master_TH"]
-                # Both languages are evaluated together for the same master row.
-                master_names.append(f"{th_name} {en_name}")
-            errors.extend(supplier_language_errors(excel_supplier, master_names, "Master"))
-        errors.extend(supplier_language_errors(excel_supplier, [txt_supplier], "Text file"))
+        errors.extend(supplier_matching_errors(
+            excel_supplier, master_matches if master_found else [], txt_supplier
+        ))
 
         # Read supplier address by header, matched by VendorTaxId.
-        # Master column 8 is "Street"; compare the first whitespace token.
+        # Compare the first Street token and available five-digit postcode.
         supplier_address = get_excel_value("VendorAddress")
         if master_found and not any(
-            first_address_word(supplier_address)
-            and first_address_word(supplier_address) == first_address_word(m["StreetNo"])
+            address_matches_master(supplier_address, m)
             for m in master_matches
         ):
             errors.append("Supplier Address is NOT MATCHING")
@@ -1136,8 +1122,7 @@ def validate_excel(
                     errors.append("Name is NOT MATCHING with Master file")
                 name_address = get_excel_value("Address")
                 if not any(
-                    first_address_word(name_address)
-                    and first_address_word(name_address) == first_address_word(m["StreetNo"])
+                    address_matches_master(name_address, m)
                     for m in name_master_matches
                 ):
                     errors.append("Name Address is NOT MATCHING")
