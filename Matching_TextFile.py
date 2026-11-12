@@ -587,9 +587,9 @@ def highlight_excel_errors(excel_path):
 
     - Amount error -> ทำสี TotalAmount, VATAmount, AmountIncVat
 
-    - Company address mismatch -> ทำสี CompanyAddress, CompanyBranch
+    - Company address mismatch -> ทำสี Address, Branch
 
-    - PO/Company branch mismatch -> ทำสี PurchaseOrderNo, CompanyBranch
+    - PO/Company branch mismatch -> ทำสี PurchaseOrderNo, Branch
 
     - เอกสารสำเนา -> Emessage สีเหลือง (warning)
 
@@ -627,7 +627,7 @@ def highlight_excel_errors(excel_path):
 
     def mark_cell(row_number, field_name, warning=False):
 
-        col_number = {"__SUPPLIER_ADDRESS_F__": 6, "__NAME_ADDRESS_O__": 15}.get(field_name, column_map.get(field_name))
+        col_number = column_map.get(field_name)
         if col_number is None and field_name in ("TaxRemark", "TaxID"):
             col_number = next((col for header, col in column_map.items() if header.casefold() == field_name.casefold()), None)
 
@@ -650,8 +650,8 @@ def highlight_excel_errors(excel_path):
             cell.font = error_font
     
     error_field_map = {
-        "Company address does not match": ["CompanyAddress", "CompanyBranch"],
-        "PO does not match Company branch": ["PurchaseOrderNo", "CompanyBranch"],
+        "Company address does not match": ["Address", "Branch"],
+        "PO does not match Company branch": ["PurchaseOrderNo", "Branch"],
         "Duplicate Amount Found": ["TotalAmount", "VATAmount", "AmountIncVat"],
         "Amount format invalid": ["TotalAmount", "VATAmount", "AmountIncVat"],
         "VATAmount format invalid": ["TotalAmount", "VATAmount", "AmountIncVat"],
@@ -665,8 +665,8 @@ def highlight_excel_errors(excel_path):
         "SupplierName is NOT MATCHING with Master file": ["SupplierName"],
         "SupplierName is NOT MATCHING with Text file": ["SupplierName"],
         "Address is NOT MATCHING": ["Address"],
-        "Supplier Address is NOT MATCHING": ["__SUPPLIER_ADDRESS_F__"],
-        "Name Address is NOT MATCHING": ["__NAME_ADDRESS_O__"],
+        "Supplier Address is NOT MATCHING": ["VendorAddress"],
+        "Name Address is NOT MATCHING": ["Address"],
         "Name is NOT MATCHING with Master file": ["Name"],
         "VendorBranch is NOT MATCHING": ["VendorBranch"],
         "TotalAmount is NOT MATCHING": ["TotalAmount"],
@@ -824,6 +824,10 @@ def validate_excel(
     }
 
     required_columns = [
+
+        "VendorAddress",
+
+        "Address",
 
         "TaxInvoiceNo",
 
@@ -1107,9 +1111,9 @@ def validate_excel(
             errors.extend(supplier_language_errors(excel_supplier, master_names, "Master"))
         errors.extend(supplier_language_errors(excel_supplier, [txt_supplier], "Text file"))
 
-        # Supplier address is always Excel column F, matched by VendorTaxId.
+        # Read supplier address by header, matched by VendorTaxId.
         # Master column 8 is "Street"; compare the first whitespace token.
-        supplier_address = ws.cell(row=row_number, column=6).value
+        supplier_address = get_excel_value("VendorAddress")
         if master_found and not any(
             first_address_word(supplier_address)
             and first_address_word(supplier_address) == first_address_word(m["StreetNo"])
@@ -1117,7 +1121,7 @@ def validate_excel(
         ):
             errors.append("Supplier Address is NOT MATCHING")
 
-        # Company Name / Address: Excel Name + address in column O,
+        # Company Name / Address: Excel Name + Address headers,
         # master keyed by TaxID (master column 4), independently of supplier.
         if taxid_col is not None:
             name_tax_id = ws.cell(row=row_number, column=taxid_col).value
@@ -1130,7 +1134,7 @@ def validate_excel(
                     for m in name_master_matches
                 ):
                     errors.append("Name is NOT MATCHING with Master file")
-                name_address = ws.cell(row=row_number, column=15).value
+                name_address = get_excel_value("Address")
                 if not any(
                     first_address_word(name_address)
                     and first_address_word(name_address) == first_address_word(m["StreetNo"])
