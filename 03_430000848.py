@@ -3770,7 +3770,7 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
         "PostingDate": final_invoice_date,
         "TaxInvoiceNo": tax_invoice_no_clean,
         "SupplierName": supplier_name,
-        "Address": address,
+        "VendorAddress": address,
         "CompanyAddress": Company_address,
         "CompanyName": company_name,
         "CompanyTaxID": company_tax_id,
@@ -3802,7 +3802,7 @@ def build_excel_row(invoice):
         "SupplierName": invoice.get("SupplierName", ""),
         "VendorBranch": invoice.get("VendorBranch", ""),  
         "VendorTaxId": invoice.get("VendorTaxId", ""), 
-        "Address": invoice.get("Address", ""),
+        "VendorAddress": invoice.get("VendorAddress", ""),
         "TotalAmount": invoice.get("TotalAmount", ""),
         "VATAmount": invoice.get("VATAmount", ""),
         "AmountIncVat": invoice.get("AmountIncVat", ""),
@@ -3827,7 +3827,7 @@ def merge_invoice_row(existing, new):
         "Assignment",
         "VendorTaxId",
         "VendorBranch",
-        "Address",
+        "VendorAddress",
         "CompanyAddress",
         "CompanyName",
         "CompanyTaxID",
@@ -3990,8 +3990,8 @@ for input_pdf in pdf_list:
                 print("⚠️ เอกสารใบนี้เป็นสำเนา")
 
             # Address fallback อีกชั้นก่อนทำขั้นตอนต่อไป
-            if not invoice_data.get("Address"):
-                invoice_data["Address"] = extract_vendor_address_from_pages(invoices, ocr_cache)
+            if not invoice_data.get("VendorAddress"):
+                invoice_data["VendorAddress"] = extract_vendor_address_from_pages(invoices, ocr_cache)
 
             if not invoice_data.get("CompanyAddress"):
                 customer_tax_id_for_address = clean_tax_id(
@@ -4391,7 +4391,7 @@ EXCEL_COLUMNS = [
     "SupplierName",
     "VendorTaxId",
     "VendorBranch",
-    "Address",
+    "VendorAddress",
     "TotalAmount",
     "VATAmount",
     "AmountIncVat",
