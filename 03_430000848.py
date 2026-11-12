@@ -17,6 +17,7 @@ from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.exceptions import ServiceRequestError, HttpResponseError
 from datetime import datetime, timedelta
 from dateutil import parser
+from po_patterns import load_po_patterns, is_po_value
 
 # ====================================================
 # 🔐 ตั้งค่า
@@ -289,18 +290,6 @@ DEFAULT_PATTERN_CONFIG = {
         {"name": "Invoice Dash", "regex": r"\d{2}-\d{6}"},
         {"name": "IG Invoice", "regex": r"IG\d{3,6}[/-]\d{3,5}"}
     ],
-    "po_patterns": [
-        {"name": "41000 LOCAL", "regex": r"(?<![A-Z0-9])(?:PO\s*)?(41000\d{5})(?![A-Z0-9])"},
-        {"name": "42000 LOCAL", "regex": r"(?<![A-Z0-9])(?:PO\s*)?(42000\d{5})(?![A-Z0-9])"},
-        {"name": "45000 LOCAL", "regex": r"(?<![A-Z0-9])(?:PO\s*)?(45000\d{5})(?![A-Z0-9])"},
-        {"name": "P22000 LOCAL", "regex": r"(?<![A-Z0-9])(?:PO\s*)?(P22000\d{4})(?![A-Z0-9])"},
-        {"name": "T22000 LOCAL", "regex": r"(?<![A-Z0-9])(?:PO\s*)?(T22000\d{4})(?![A-Z0-9])"},
-        {"name": "43000 LOCAL", "regex": r"(?<![A-Z0-9])(?:PO\s*)?(43000\d{5})(?![A-Z0-9])"},
-        {"name": "44000 LOCAL", "regex": r"(?<![A-Z0-9])(?:PO\s*)?(44000\d{5})(?![A-Z0-9])"},
-        {"name": "46000 LOCAL", "regex": r"(?<![A-Z0-9])(?:PO\s*)?(46000\d{5})(?![A-Z0-9])"},
-        {"name": "K22000 LOCAL", "regex": r"(?<![A-Z0-9])(?:PO\s*)?(K22000\d{4})(?![A-Z0-9])"},
-        {"name": "E22000 LOCAL", "regex": r"(?<![A-Z0-9])(?:PO\s*)?(E22000\d{4})(?![A-Z0-9])"}
-    ],
     "vendor_branch_patterns": [
         {"name": "Thai Branch", "regex": r"สาขา(?:ที่|เลขที่)?\s*[:：]?\s*(\d{1,10})"},
         {"name": "English Branch", "regex": r"Branch\s*(?:No\.?|Number|Code|ID)?\s*[:：]?\s*(\d{1,10})"}
@@ -347,37 +336,10 @@ except FileNotFoundError:
 
 INVOICE_PATTERNS = [p["regex"] for p in pattern_config.get("invoice_patterns", DEFAULT_PATTERN_CONFIG["invoice_patterns"])]
 
-# ====================================================
-# 📌 PO Pattern Loader - รองรับทั้ง List แบบเดิม และ Dict แยก Branch
-# ====================================================
-RAW_PO_CONFIG = pattern_config.get("po_patterns", DEFAULT_PATTERN_CONFIG["po_patterns"])
-
-# ใช้เก็บ config PO ที่แยกตาม Company Branch ภายใน เช่น {"00000": [...], "00001": [...]}
-PO_PATTERN_CONFIG = RAW_PO_CONFIG if isinstance(RAW_PO_CONFIG, dict) else {}
-
-# PO_PATTERNS ใช้เป็น generic fallback และรองรับ clean_po_from_field() เดิม
-PO_PATTERNS = []
-
-if isinstance(RAW_PO_CONFIG, list):
-    for p in RAW_PO_CONFIG:
-        if isinstance(p, dict) and p.get("regex"):
-            PO_PATTERNS.append(p["regex"])
-
-elif isinstance(RAW_PO_CONFIG, dict):
-    for branch_items in RAW_PO_CONFIG.values():
-        if not isinstance(branch_items, list):
-            continue
-        for p in branch_items:
-            if isinstance(p, dict) and p.get("regex"):
-                PO_PATTERNS.append(p["regex"])
-
-# ถ้า JSON ไม่มี PO ที่ใช้ได้ ให้ fallback กลับไป Default Pattern
-if not PO_PATTERNS:
-    PO_PATTERNS = [
-        p["regex"]
-        for p in DEFAULT_PATTERN_CONFIG["po_patterns"]
-        if isinstance(p, dict) and p.get("regex")
-    ]
+# PO rules come only from patternsPO.json next to the shared loader.
+# Invalid/missing configuration stops startup instead of using stale defaults.
+PO_PATTERN_CONFIG = load_po_patterns()
+PO_PATTERNS = [pattern for patterns in PO_PATTERN_CONFIG.values() for pattern in patterns]
 
 VENDOR_BRANCH_PATTERNS = [p["regex"] for p in pattern_config.get("vendor_branch_patterns", DEFAULT_PATTERN_CONFIG["vendor_branch_patterns"])]
 VENDOR_ISSUER_PATTERNS = [p["regex"] for p in pattern_config.get("vendor_issuer_patterns", DEFAULT_PATTERN_CONFIG["vendor_issuer_patterns"])]
@@ -387,36 +349,6 @@ EXCLUDE_TAX_IDS = set(pattern_config.get("exclude_tax_ids", DEFAULT_PATTERN_CONF
 STOP_KEYWORDS = pattern_config.get("stop_keywords", DEFAULT_PATTERN_CONFIG["stop_keywords"])
 SUPPLIER_SKIP_KEYWORDS = pattern_config.get("supplier_skip_keywords", DEFAULT_PATTERN_CONFIG["supplier_skip_keywords"])
 SUPPLIER_NAME_PATTERNS = [p["regex"] for p in pattern_config.get("supplier_name_patterns", DEFAULT_PATTERN_CONFIG["supplier_name_patterns"])]
-
-# ====================================================
-# 📌 PO Branch Rules
-# ====================================================
-# 00000 = บางพลี สำนักงานใหญ่
-# 00001 = ปราจีน สาขา 1
-#
-# หมายเหตุ:
-# - ค้นหา PO ของ branch ที่ส่งเข้ามาก่อน
-# - ถ้าไม่เจอ จึงค้นหา PO ของอีก branch
-# - ถ้าเจอ PO ของอีก branch จะเก็บ PO ไว้ และเพิ่ม Emessage
-#   "PO does not match Company branch"
-# PO ทุกแบบมีความยาว 10 ตัวอักษร ไม่จับบางส่วนของรหัสที่ยาวเกิน
-PO_BRANCH_PATTERNS = {
-    "00000": [
-        r"(?<![A-Z0-9])(?:PO\s*)?(41000\d{5})(?![A-Z0-9])",
-        r"(?<![A-Z0-9])(?:PO\s*)?(42000\d{5})(?![A-Z0-9])",
-        r"(?<![A-Z0-9])(?:PO\s*)?(45000\d{5})(?![A-Z0-9])",
-        r"(?<![A-Z0-9])(?:PO\s*)?(P22000\d{4})(?![A-Z0-9])",
-        r"(?<![A-Z0-9])(?:PO\s*)?(T22000\d{4})(?![A-Z0-9])",
-    ],
-    "00001": [
-        r"(?<![A-Z0-9])(?:PO\s*)?(43000\d{5})(?![A-Z0-9])",
-        r"(?<![A-Z0-9])(?:PO\s*)?(44000\d{5})(?![A-Z0-9])",
-        r"(?<![A-Z0-9])(?:PO\s*)?(46000\d{5})(?![A-Z0-9])",
-        r"(?<![A-Z0-9])(?:PO\s*)?(K22000\d{4})(?![A-Z0-9])",
-        r"(?<![A-Z0-9])(?:PO\s*)?(E22000\d{4})(?![A-Z0-9])",
-    ],
-}
-
 
 def normalize_internal_company_branch(value):
     """Use the same five-digit company branch code in CLI, PO rules and Excel."""
@@ -434,29 +366,9 @@ def company_branch_to_display(value):
 
 
 def get_po_patterns_by_branch(branch_code):
-    """
-    คืน PO regex ของ Company Branch ที่ระบุ
-
-    Priority:
-    1) patternsInvoice.json ถ้า po_patterns เป็น dict แยก branch
-    2) PO_BRANCH_PATTERNS ในโปรแกรมเป็น fallback
-    """
+    """Use only the configured masks for this five-digit company branch."""
     branch_code = normalize_internal_company_branch(branch_code)
-
-    # ใช้ config จาก patternsInvoice.json ก่อน
-    if isinstance(PO_PATTERN_CONFIG, dict):
-        # JSON, fallback rules and CLI use the same five-digit branch keys.
-        branch_items = PO_PATTERN_CONFIG.get(branch_code, [])
-        patterns = [
-            p["regex"]
-            for p in branch_items
-            if isinstance(p, dict) and p.get("regex")
-        ]
-        if patterns:
-            return patterns
-
-    # fallback กฎที่กำหนดไว้ในโปรแกรม
-    return PO_BRANCH_PATTERNS.get(branch_code, [])
+    return PO_PATTERN_CONFIG.get(branch_code, [])
 
 
 def get_other_branch(branch_code):
@@ -3210,8 +3122,8 @@ def extract_po_from_text_and_tables(invoices, branch_code, extra_text="", ocr_ca
     1) หา PO ของ branch ปัจจุบันก่อน
     2) ถ้าไม่เจอ -> หา PO ของอีก branch
        ถ้าเจอ จะคืน po_branch_mismatch = True
-    3) ถ้ายังไม่เจอ -> fallback ไปใช้ PO_PATTERNS เดิม
-       เพื่อรองรับ PO รูปแบบทั่วไปที่ไม่อยู่ในกฎ branch
+    3) ถ้ายังไม่เจอ -> ค้นหาใน PO_PATTERNS ที่รวมจากไฟล์เดียวกัน
+       ทุก regex มาจาก patternsPO.json เท่านั้น
 
     return:
         (po_value, po_branch_mismatch)
@@ -3274,8 +3186,8 @@ def extract_po_from_text_and_tables(invoices, branch_code, extra_text="", ocr_ca
             return po_value, True
 
     # --------------------------------------------------
-    # 3) Fallback PO Patterns เดิม
-    #    เช่น PO140 หรือรูปแบบอื่นที่ไม่ได้ผูกกับ branch
+    # 3) Search the combined configured PO patterns
+    #    No built-in or legacy PO patterns are used.
     # --------------------------------------------------
     po_no_list = find_all_by_patterns(PO_PATTERNS, full_text)
 
@@ -3320,7 +3232,7 @@ def extract_tax_invoice_no_from_pages(invoices, ocr_cache=None):
 
     value = find_first_by_patterns(INVOICE_PATTERNS, full_text)
 
-    if value and not re.match(r"^(?:PO)?(?:410|140)\d{7}$", value, re.IGNORECASE):
+    if value and not is_po_value(value, PO_PATTERNS):
         return value
 
     fallback_patterns = [
@@ -3339,7 +3251,7 @@ def extract_tax_invoice_no_from_pages(invoices, ocr_cache=None):
         if not str(value).upper().startswith("OTH"):
             value = "OTH" + str(value)
 
-    if value and not re.match(r"^(?:PO)?(?:410|140)\d{7}$", str(value), re.IGNORECASE):
+    if value and not is_po_value(str(value), PO_PATTERNS):
         return value
 
     return ""
@@ -3353,7 +3265,7 @@ def find_invoice_no_from_words(invoices):
         for w in page.words:
             text = w.content.strip() if w.content else ""
 
-            if re.match(r"^(?:PO)?(?:410|140)\d{7}$", text, re.IGNORECASE):
+            if is_po_value(text, PO_PATTERNS):
                 continue
 
             value = find_first_by_patterns(INVOICE_PATTERNS, text)
@@ -3721,7 +3633,7 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
 
     tax_invoice_no_clean = tax_invoice_no.split(",")[-1].strip()
 
-    if re.match(r"^(?:PO)?(?:410|140)\d{7}$", tax_invoice_no_clean, re.IGNORECASE):
+    if is_po_value(tax_invoice_no_clean, PO_PATTERNS):
         tax_invoice_no_clean = ""
 
     purchase_order_no1 = str(
@@ -4310,7 +4222,7 @@ for input_pdf in pdf_list:
                 )
 
             tax_invoice_no = (invoice_data.get("TaxInvoiceNo") or "").strip()
-            if re.match(r"^(?:PO)?(?:410|140)\d{7}$", tax_invoice_no, re.IGNORECASE):
+            if is_po_value(tax_invoice_no, PO_PATTERNS):
                 invoice_data["TaxInvoiceNo"] = ""
 
             # if not invoice_data.get("InvoiceDate") and invoice_date_ocr:
