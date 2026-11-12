@@ -194,7 +194,9 @@ def supplier_names_match(left, right):
 
 
 def first_address_word(value):
-    parts = str(value or "").strip(" \t").split(" ", 1)
+    # Keep comma-separated house numbers together before splitting the street.
+    text = re.sub(r"[ \t]*,[ \t]*", ",", str(value or "").strip(" \t"))
+    parts = text.split(" ", 1)
     return parts[0].replace("\t", "").casefold()
 
 

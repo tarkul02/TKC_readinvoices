@@ -18,22 +18,22 @@ class SupplierMatchingTests(unittest.TestCase):
 
     def test_master_mismatch_even_when_ocr_matches_text(self):
         self.assertEqual(supplier_matching_errors("Other", self.rows, "Other"),
-                         ["SupplierName is NOT MATCHING with Master file"])
+                         ["SupplierName is NOT MATCHING with Master Report"])
         self.assertEqual(supplier_matching_errors("Vendor One", [], "Vendor One"),
-                         ["SupplierName is NOT MATCHING with Master file"])
+                         ["SupplierName is NOT MATCHING with Master Report"])
 
     def test_master_then_text_and_missing_names(self):
         self.assertEqual(supplier_matching_errors("Vendor One", self.rows, "Vendor One"), [])
         for text in ["Other", ""]:
             self.assertEqual(supplier_matching_errors("Vendor One", self.rows, text),
-                             ["SupplierName is MATCHING with Master file but NOT MATCHING with Text file"])
+                             ["SupplierName is MATCHING with Master Report but NOT MATCHING with Text Report"])
         self.assertEqual(supplier_matching_errors("", self.rows, ""),
-                         ["SupplierName is NOT MATCHING with Master file"])
+                         ["SupplierName is NOT MATCHING with Master Report"])
 
     def test_text_cannot_use_an_unmatched_master_row(self):
         rows = self.rows + [{"SupplierName_Master_EN": "Other", "SupplierName_Master_TH": ""}]
         self.assertEqual(supplier_matching_errors("Vendor One", rows, "Other"),
-                         ["SupplierName is MATCHING with Master file but NOT MATCHING with Text file"])
+                         ["SupplierName is MATCHING with Master Report but NOT MATCHING with Text Report"])
 
     def test_name_match_does_not_require_separate_language_statuses(self):
         rows = [{"SupplierName_Master_EN": "Vendor One", "SupplierName_Master_TH": "บริษัททดสอบ"}]
@@ -44,7 +44,7 @@ class SupplierMatchingTests(unittest.TestCase):
         ws = wb.active
         ws.append(["SupplierName", "Emessage"])
         ws.append(["Vendor One", "Original OCR warning | SupplierName OCR vs Master: TH N/A, EN NOT MATCHING"])
-        message = "SupplierName is MATCHING with Master file but NOT MATCHING with Text file"
+        message = "SupplierName is MATCHING with Master Report but NOT MATCHING with Text Report"
         append_emessage(ws['B2'], [message])
         append_emessage(ws['B2'], [message])
         self.assertEqual(ws['B2'].value, "Original OCR warning | " + message)
@@ -61,8 +61,8 @@ class SupplierMatchingTests(unittest.TestCase):
 
     def test_both_english_errors_highlight_only_related_fields(self):
         messages = [
-            "SupplierName is NOT MATCHING with Master file",
-            "SupplierName is MATCHING with Master file but NOT MATCHING with Text file",
+            "SupplierName is NOT MATCHING with Master Report",
+            "SupplierName is MATCHING with Master Report but NOT MATCHING with Text Report",
         ]
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'highlight.xlsx'
@@ -93,6 +93,17 @@ class SupplierMatchingTests(unittest.TestCase):
 
 
 class AddressMatchingTests(unittest.TestCase):
+    def test_comma_separated_house_numbers_ignore_comma_spacing(self):
+        master = {'StreetNo': '73, 73/2, 131 ม.7', 'PostCode': '74110'}
+        address = '73,73/2,131 ม. 7 ถ.สวนหลวงร่วมใจ ต.สวนหลวง อ.กระทุ่มแบน จ.สมุทรสาคร 74110'
+        self.assertTrue(address_matches_master(address, master))
+        for street in ['73,73/2,131 ม.7', '73 , 73/2 , 131 ม.7', '73,\t73/2,\t131 ม.7']:
+            with self.subTest(street=street):
+                self.assertTrue(address_matches_master(address, dict(master, StreetNo=street)))
+        self.assertFalse(address_matches_master(address.replace('73/2', '73/3'), master))
+        self.assertFalse(address_matches_master(address.replace('74110', '74111'), master))
+        self.assertFalse(address_matches_master('73 ม.7 74110', master))
+
     def test_empty_branch_validation_without_master_branch(self):
         record = {'Branch': '', 'TaxID': '123', 'VendorBranch': None, 'VendorTaxId': '123'}
         for master in ({}, {'123': [{'BranchCode': ''}]}):
