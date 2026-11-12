@@ -93,6 +93,18 @@ class SupplierMatchingTests(unittest.TestCase):
 
 
 class AddressMatchingTests(unittest.TestCase):
+    def test_name_address_ignores_commas_in_comparison(self):
+        rows = [{'BranchCode': '00000', 'StreetNo': '1,234 Road', 'PostCode': '10,570'}]
+        self.assertEqual(address_matching_errors('1234 Road 10,570', rows, '00000'), [])
+        self.assertEqual(address_matching_errors('1234 Road 10,571', rows, '00000'),
+                         ['Name Address is NOT MATCHING'])
+        self.assertEqual(address_matching_errors('1234 Road 10,570', rows, '00000', supplier=True),
+                         ['Supplier Address is NOT MATCHING'])
+        rows = [{'BranchCode': '', 'StreetNo': '73, 73/2, 131 ม.7', 'PostCode': '74110'}]
+        self.assertEqual(address_matching_errors('73,\t73/2, 131 ม. 7 74110,', rows, None), [])
+        self.assertEqual(address_matching_errors('73,73/3,131 ม.7 74110', rows, None),
+                         ['Name Address is NOT MATCHING'])
+
     def test_comma_separated_house_numbers_ignore_comma_spacing(self):
         master = {'StreetNo': '73, 73/2, 131 ม.7', 'PostCode': '74110'}
         address = '73,73/2,131 ม. 7 ถ.สวนหลวงร่วมใจ ต.สวนหลวง อ.กระทุ่มแบน จ.สมุทรสาคร 74110'

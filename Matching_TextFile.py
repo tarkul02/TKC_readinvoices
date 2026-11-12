@@ -217,15 +217,20 @@ def supplier_matching_errors(ocr_name, master_rows, text_name):
     return []
 
 
-def address_matches_master(address, master_row):
+def normalize_address_comparison(value, ignore_commas=False):
+    """Keep address comparison cleanup in one place for both OCR and Master."""
+    return re.sub(r"[ \t,]" if ignore_commas else r"[ \t]", "", str(value or ""))
+
+
+def address_matches_master(address, master_row, ignore_commas=False):
     """Compare available street/postcode pairs within the same Master row."""
-    street = first_address_word(address)
-    master_street = first_address_word(master_row["StreetNo"])
+    street = normalize_address_comparison(first_address_word(address), ignore_commas)
+    master_street = normalize_address_comparison(first_address_word(master_row["StreetNo"]), ignore_commas)
     if street and master_street and street != master_street:
         return False
-    compact_address = re.sub(r"[ \t]", "", str(address or ""))
+    compact_address = normalize_address_comparison(address, ignore_commas)
     postcode = compact_address[-5:]
-    master_postcode = re.sub(r"[ \t]", "", str(master_row.get("PostCode") or ""))
+    master_postcode = normalize_address_comparison(master_row.get("PostCode"), ignore_commas)
     if re.fullmatch(r"[0-9]{5}", postcode) and master_postcode:
         return postcode == master_postcode
     return True
@@ -247,7 +252,7 @@ def address_matching_errors(address, master_rows, branch, supplier=False):
             return []
         master_rows = [r for r in branch_rows
                        if normalize_master_branch(r["BranchCode"]) == normalize_master_branch(branch)]
-    if not any(address_matches_master(address, row) for row in master_rows):
+    if not any(address_matches_master(address, row, ignore_commas=not supplier) for row in master_rows):
         return [mismatch]
     return []
 
