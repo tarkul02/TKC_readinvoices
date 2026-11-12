@@ -90,7 +90,7 @@ python .\config.py 20261104_13 00000 Process3
 พารามิเตอร์เรียงตามลำดับ:
 
 1. `today_str`: ชื่อรอบหรือโฟลเดอร์ Output เช่น `20261104_13`
-2. `branch_email`: รหัสสาขา เช่น `00000` หรือ `1100`
+2. `branch_email`: รหัสสาขาบริษัท `00000` (บางพลี) หรือ `00001` (ปราจีน)
 3. `process_name`: ชื่อ Process เช่น `Process1`, `Process2`, `Process3`
 
 ตัวอย่างโครงสร้างที่สร้างเมื่อ `MAIN_PATH=C:\TKC\Document`:
@@ -154,29 +154,45 @@ print(paths["output_excel"])
 cd C:\TKC\TKC_readinvoices
 ```
 
-ตัวอย่างใช้ `MAIN_PATH=C:\TKC\Document` และ Branch `1100` ให้เปลี่ยนตามเครื่องที่ใช้งาน
+ตัวอย่างใช้ `MAIN_PATH=C:\TKC\Document` และ Branch `00000` ให้เปลี่ยนตามเครื่องที่ใช้งาน
 
 ### 5.1 รัน OCR และ Matching ต่อเนื่อง (`03_430000848.py`)
 
 เตรียมไฟล์ก่อนรัน:
 
 - ตั้งค่า `AZURE_ENDPOINT`, `AZURE_KEY`, `MAIN_PATH` ใน `.env` และติดตั้ง dependencies/Poppler ตามหัวข้อด้านบน
-- วาง PDF และ TXT ของรอบที่จะตรวจใน `C:\TKC\Document\INPUT\Process3\1100` โดยตรง
+- วาง PDF และ TXT ของรอบที่จะตรวจใน `C:\TKC\Document\INPUT\Process3\00000` โดยตรง
 - วาง Master ที่ `C:\TKC\Document\MasterSuplier\Master Vendor Name (MAT)_TH_ENG.xlsx`
 - ตั้งค่าอีเมลตามหัวข้อ 5.3 เนื่องจาก Matching เรียกส่งอีเมลหลังสร้างผลลัพธ์
 
 รันโดยส่ง **รหัสสาขาเพียง 1 ตัว**:
 
 ```powershell
-python .\03_430000848.py 1100
+python .\03_430000848.py 00000
 ```
+
+รหัสสาขาบริษัทใช้ 5 หลักเหมือนกันทั้งคำสั่งรัน โฟลเดอร์ Input กฎ PO และคอลัมน์ `Branch` ใน Excel:
+
+| สาขา | รหัส |
+|---|---|
+| บางพลี / สำนักงานใหญ่ | `00000` |
+| ปราจีน / สาขา 1 | `00001` |
+
+ตัวอย่างรันปราจีน:
+
+```powershell
+python .\03_430000848.py 00001
+```
+
+สคริปต์ OCR `03_430000848.py` และ `07_430000840.py` ไม่รับรหัสเดิม `0000` / `1000` หรือ `1100` แล้ว ให้ใช้โฟลเดอร์ `INPUT\Process3\00000` หรือ `INPUT\Process3\00001` ตามสาขา (`Process7` สำหรับอีกสคริปต์) ไฟล์ที่อยู่ในโฟลเดอร์รหัสเดิมต้องย้ายเองก่อนรัน โปรแกรมไม่ย้ายข้อมูลเก่าอัตโนมัติ
+
 
 โปรแกรมสร้างชื่อรอบอัตโนมัติเป็น `YYYYMMDD_HHMMSS` เช่น `20261104_121430` ไม่มีท้าย `_OCR` จึงไม่ต้องส่งวันที่เป็น parameter โปรแกรมอ่าน PDF ใน Input Folder และเลือก TXT ที่แก้ไขล่าสุดในโฟลเดอร์เดียวกันสำหรับ Matching ควรตรวจว่า TXT ล่าสุดตรงกับ PDF ที่จะประมวลผล
 
 โครงสร้างผลลัพธ์ของรอบนั้น:
 
 ```text
-C:\TKC\Document\INPUT\Process3\1100\OutputExcel\20261104_121430\
+C:\TKC\Document\INPUT\Process3\00000\OutputExcel\20261104_121430\
 ├── PDF\                         # PDF ที่ประมวลผลแล้วถูกย้ายมาที่นี่
 ├── Excel\
 │   └── OCR\
@@ -206,7 +222,7 @@ python Matching_TextFile.py <excel_path> <text_path> <master_path> <output_excel
 ตัวอย่าง PowerShell ใช้ตัวแปรเพื่อลดการพิมพ์ path ซ้ำ:
 
 ```powershell
-$batchFolder = "C:\TKC\Document\INPUT\Process3\1100\OutputExcel\20261104_121430"
+$batchFolder = "C:\TKC\Document\INPUT\Process3\00000\OutputExcel\20261104_121430"
 $excelPath = Join-Path $batchFolder "All_Invoices.xlsx"
 $textPath = Join-Path $batchFolder "summary invoice report.txt"
 $masterPath = "C:\TKC\Document\MasterSuplier\Master Vendor Name (MAT)_TH_ENG.xlsx"

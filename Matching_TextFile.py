@@ -22,15 +22,15 @@ from openpyxl.styles import PatternFill, Font
 
 EXCEL_PATH = (
 
-    # r"C:\TKC\TKC_readinvoices\INPUT\Process3\0000\OutputExcel\text\Excel\OCR\All_Invoices.xlsx"
+    # r"C:\TKC\TKC_readinvoices\INPUT\Process3\00000\OutputExcel\text\Excel\OCR\All_Invoices.xlsx"
 
-    r"C:\TKC\TKC_readinvoices\INPUT\Process3\0000\OutputExcel\20261101_164630\All_Invoices.xlsx"
+    r"C:\TKC\TKC_readinvoices\INPUT\Process3\00000\OutputExcel\20261101_164630\All_Invoices.xlsx"
 
 )
 
 TEXT_PATH = (
 
-    r"C:\TKC\TKC_readinvoices\INPUT\Process3\0000\OutputExcel\20261101_164630\summary invoice report_20260620.txt"
+    r"C:\TKC\TKC_readinvoices\INPUT\Process3\00000\OutputExcel\20261101_164630\summary invoice report_20260620.txt"
 
 )
 
@@ -42,7 +42,7 @@ MASTER_PATH = (
 
 OUTPUT_EXCEL_PATH = (
 
-    r"C:\TKC\TKC_readinvoices\INPUT\Process3\0000\OutputExcel\20261101_164630\ocr_output_matched_ุ6.xlsx"
+    r"C:\TKC\TKC_readinvoices\INPUT\Process3\00000\OutputExcel\20261101_164630\ocr_output_matched_ุ6.xlsx"
 
 )
 

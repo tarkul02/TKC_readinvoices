@@ -29,7 +29,10 @@ from config import (
 # ====================================================
 
 today_str = sys.argv[1]
-branch_email = sys.argv[2]
+branch_email = sys.argv[2].strip()
+if branch_email not in ("00000", "00001"):
+    print("❌ Company Branch: ใช้ 00000 (บางพลี) หรือ 00001 (ปราจีน) เท่านั้น")
+    sys.exit(2)
 
 
 # ====================================================
@@ -123,7 +126,7 @@ INVOICE_PATTERNS = [p["regex"] for p in pattern_config.get("invoice_patterns", D
 # ====================================================
 RAW_PO_CONFIG = pattern_config.get("po_patterns", DEFAULT_PATTERN_CONFIG["po_patterns"])
 
-# ใช้เก็บ config PO ที่แยกตาม Company Branch เช่น {"0000": [...], "1000": [...]}
+# ใช้เก็บ config PO ที่แยกตาม Company Branch เช่น {"00000": [...], "00001": [...]}
 PO_PATTERN_CONFIG = RAW_PO_CONFIG if isinstance(RAW_PO_CONFIG, dict) else {}
 
 # PO_PATTERNS ใช้เป็น generic fallback และรองรับ clean_po_from_field() เดิม
@@ -160,8 +163,8 @@ SUPPLIER_NAME_PATTERNS = [p["regex"] for p in pattern_config.get("supplier_name_
 # ====================================================
 # 📌 PO Branch Rules
 # ====================================================
-# 0000 = บางพลี สำนักงานใหญ่
-# 1000 = ปราจีน สาขา 1
+# 00000 = บางพลี สำนักงานใหญ่
+# 00001 = ปราจีน สาขา 1
 #
 # หมายเหตุ:
 # - ค้นหา PO ของ branch ที่ส่งเข้ามาก่อน
@@ -169,13 +172,13 @@ SUPPLIER_NAME_PATTERNS = [p["regex"] for p in pattern_config.get("supplier_name_
 # - ถ้าเจอ PO ของอีก branch จะเก็บ PO ไว้ และเพิ่ม Emessage
 #   "PO does not match Company branch"
 PO_BRANCH_PATTERNS = {
-    "0000": [
+    "00000": [
         r"(41000\d{5})",
         r"(45000\d{5})",
         r"(P22000\d{4})",
         r"(T22000\d{4})",
     ],
-    "1000": [
+    "00001": [
         r"(43000\d{5})",
         r"(44000\d{5})",
         r"(E22000\d{5})",
@@ -193,7 +196,7 @@ def get_po_patterns_by_branch(branch_code):
     1) patternsInvoice.json ถ้า po_patterns เป็น dict แยก branch
     2) PO_BRANCH_PATTERNS ในโปรแกรมเป็น fallback
     """
-    branch_code = str(branch_code or "").strip().zfill(4)
+    branch_code = str(branch_code or "").strip().zfill(5)
 
     # ใช้ config จาก patternsInvoice.json ก่อน
     if isinstance(PO_PATTERN_CONFIG, dict):
@@ -211,12 +214,12 @@ def get_po_patterns_by_branch(branch_code):
 
 
 def get_other_branch(branch_code):
-    branch_code = str(branch_code or "").strip().zfill(4)
+    branch_code = str(branch_code or "").strip().zfill(5)
 
-    if branch_code == "0000":
-        return "1000"
-    if branch_code == "1000":
-        return "0000"
+    if branch_code == "00000":
+        return "00001"
+    if branch_code == "00001":
+        return "00000"
 
     return ""
 
@@ -553,13 +556,13 @@ def validate_Company_branch(Company_address, input_branch):
     ตรวจสอบ Company Branch จากที่อยู่ เทียบกับค่าที่ส่งเข้ามาตอนรันโปรแกรม
 
     ตัวอย่าง:
-    python script.py testfile 0000
+    python script.py testfile 00000
 
     ถ้า CompanyAddress มีเลข 370
-        expected = 0000
+        expected = 00000
 
     ถ้าไม่มี 370
-        expected = 1000
+        expected = 00001
 
     return:
         Company_branch
@@ -568,13 +571,13 @@ def validate_Company_branch(Company_address, input_branch):
     """
 
     Company_address = str(Company_address or "").strip()
-    input_branch = str(input_branch or "").strip().zfill(4)
+    input_branch = str(input_branch or "").strip().zfill(5)
 
     # กำหนด branch ที่ควรจะเป็นจาก Address
     if re.search(r"\b(?:370|10570)\b", Company_address):
-        expected_branch = "0000"
+        expected_branch = "00000"
     else:
-        expected_branch = "1000"
+        expected_branch = "00001"
 
     is_correct = input_branch == expected_branch
 
@@ -1491,7 +1494,7 @@ def extract_po_from_text_and_tables(invoices, branch_code, extra_text="", ocr_ca
         (po_value, po_branch_mismatch)
     """
 
-    branch_code = str(branch_code or "").strip().zfill(4)
+    branch_code = str(branch_code or "").strip().zfill(5)
 
     if ocr_cache is not None:
         full_text = ocr_cache["po_base_text"]
