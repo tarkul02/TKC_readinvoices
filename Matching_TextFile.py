@@ -24,13 +24,13 @@ EXCEL_PATH = (
 
     # r"C:\TKC\TKC_readinvoices\INPUT\Process3\00000\OutputExcel\text\Excel\OCR\All_Invoices.xlsx"
 
-    r"C:\TKC\TKC_readinvoices\INPUT\Process3\00000\OutputExcel\20261101_164630\All_Invoices.xlsx"
+    r"C:\TKC\Document\INPUT\Process3\00000\OutputExcel\20261112_220831\All_Invoices.xlsx"
 
 )
 
 TEXT_PATH = (
 
-    r"C:\TKC\TKC_readinvoices\INPUT\Process3\00000\OutputExcel\20261101_164630\summary invoice report_20260620.txt"
+    r"C:\TKC\Document\INPUT\Process3\00000\OutputExcel\20261112_220831\summary invoice report_20260620.txt"
 
 )
 
@@ -42,7 +42,7 @@ MASTER_PATH = (
 
 OUTPUT_EXCEL_PATH = (
 
-    r"C:\TKC\TKC_readinvoices\INPUT\Process3\00000\OutputExcel\20261101_164630\ocr_output_matched_ุ6.xlsx"
+    r"C:\TKC\Document\INPUT\Process3\00000\OutputExcel\20261112_220831\ocr_output_matched_ุ6.xlsx"
 
 )
 
@@ -206,12 +206,12 @@ def supplier_matching_errors(ocr_name, master_rows, text_name):
         if supplier_names_match(ocr_name, name):
             matched_names.append(name)
     if not matched_names:
-        return ["SupplierName is NOT MATCHING with Master file"]
+        return ["SupplierName is NOT MATCHING with Master Report"]
     if not clean(text_name) or all(
         not supplier_names_match(name, text_name)
         for name in matched_names
     ):
-        return ["SupplierName is MATCHING with Master file but NOT MATCHING with Text file"]
+        return ["SupplierName is MATCHING with Master Report but NOT MATCHING with Text Report"]
     return []
 
 
@@ -529,18 +529,18 @@ def load_master_supplier(master_path):
 # but retain every original OCR / earlier validation message.
 MATCHING_MESSAGES = {
     "TaxInvoiceNo is NOT FOUND in Summary Report",
-    "VendorTaxId NOT FOUND in Master Supplier",
+    "VendorTaxId NOT FOUND in Master Report",
     "InvoiceDate is NOT MATCHING",
     "SupplierName is NOT MATCHING",
-    "SupplierName is NOT MATCHING with Master file",
-    "SupplierName is NOT MATCHING with Text file",
+    "SupplierName is NOT MATCHING with Master Report",
+    "SupplierName is NOT MATCHING with Text Report",
     "SupplierName ไม่ตรงกับ Master",
     "SupplierName ตรงกับ Master ไม่ตรงกับ Text",
-    "SupplierName is MATCHING with Master file but NOT MATCHING with Text file",
+    "SupplierName is MATCHING with Master Report but NOT MATCHING with Text Report",
     "Address is NOT MATCHING",
     "Supplier Address is NOT MATCHING",
     "Name Address is NOT MATCHING",
-    "Name is NOT MATCHING with Master file",
+    "Name is NOT MATCHING with Master Report",
     "VendorBranch is NOT MATCHING",
     "TotalAmount is NOT MATCHING",
     "VATAmount is NOT MATCHING",
@@ -665,12 +665,12 @@ def highlight_excel_errors(excel_path):
 
         # Matching Summary Report
         "TaxInvoiceNo is NOT FOUND in Summary Report": ["TaxInvoiceNo"],
-        "VendorTaxId NOT FOUND in Master Supplier": ["VendorTaxId"],
+        "VendorTaxId NOT FOUND in Master Report": ["VendorTaxId"],
         "InvoiceDate is NOT MATCHING": ["InvoiceDate"],
         "SupplierName is NOT MATCHING": ["SupplierName"],
-        "SupplierName is NOT MATCHING with Master file": ["SupplierName"],
-        "SupplierName is NOT MATCHING with Text file": ["SupplierName"],
-        "SupplierName is MATCHING with Master file but NOT MATCHING with Text file": ["SupplierName"],
+        "SupplierName is NOT MATCHING with Master Report": ["SupplierName"],
+        "SupplierName is NOT MATCHING with Text Report": ["SupplierName"],
+        "SupplierName is MATCHING with Master Report but NOT MATCHING with Text Report": ["SupplierName"],
         "Address is NOT MATCHING": ["Address"],
         "Supplier Address is NOT MATCHING": ["VendorAddress"],
         "Name Address is NOT MATCHING": ["Address"],
@@ -678,7 +678,7 @@ def highlight_excel_errors(excel_path):
         "VendorBranch is empty; Supplier Address matching skipped": ["VendorAddress", "VendorBranch"],
         "Branch is empty": ["Branch"],
         "VendorBranch is empty": ["VendorBranch"],
-        "Name is NOT MATCHING with Master file": ["Name"],
+        "Name is NOT MATCHING with Master Report": ["Name"],
         "VendorBranch is NOT MATCHING": ["VendorBranch"],
         "TotalAmount is NOT MATCHING": ["TotalAmount"],
         "VATAmount is NOT MATCHING": ["VATAmount"],
@@ -1063,7 +1063,7 @@ def validate_excel(
 
             errors.append(
 
-                "VendorTaxId NOT FOUND in Master Supplier"
+                "VendorTaxId NOT FOUND in Master Report"
 
             )
 
@@ -1126,7 +1126,7 @@ def validate_excel(
                                          m["SupplierName_Master_TH"])
                     for m in name_master_matches
                 ):
-                    errors.append("Name is NOT MATCHING with Master file")
+                    errors.append("Name is NOT MATCHING with Master Report")
                 errors.extend(address_matching_errors(
                     get_excel_value("Address"), name_master_matches,
                     get_excel_value("Branch") if "Branch" in column_map else None,
