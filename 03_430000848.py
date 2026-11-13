@@ -2437,6 +2437,16 @@ def clean_company_name(name):
     # รวม space
     name = re.sub(r"\s+", " ", name).strip(" ,;:-")
 
+    # Office captions are metadata, including for abbreviated Thai legal
+    # names (บจก.) which do not contain the full บริษัท...จำกัด wording.
+    name = re.sub(
+        r"[\s/\\,;:()\[\]–—-]*(?:สำ\s*นัก\s*งาน\s*ใหญ่|สำหนักงานใหญ่|HEAD\s*OFFICE)"
+        r"[\s/\\,;:()\[\]–—.-]*$",
+        "",
+        name,
+        flags=re.IGNORECASE,
+    ).strip(" /\\,;:–—-")
+
     # ==========================================================
     # ภาษาไทย
     # ==========================================================
@@ -3702,7 +3712,7 @@ def build_excel_row(invoice):
         "AmountIncVat": invoice.get("AmountIncVat", ""),
         "PurchaseOrderNo": invoice.get("PurchaseOrderNo", ""),
         "TaxRemark": invoice.get("TaxRemark", ""),
-        "Name": invoice.get("CompanyName", ""),
+        "Name": clean_company_name(invoice.get("CompanyName", "")),
         "TaxID": invoice.get("CompanyTaxID", ""),
         "Branch": invoice.get("CompanyBranch", ""),
         "CompanyBranch_invoice": invoice.get("CompanyBranch_invoice", ""),
