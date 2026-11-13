@@ -2025,6 +2025,9 @@ def clean_supplier_legal_ending(name):
         flags=re.IGNORECASE,
     )
 
+    # OCR may include the office label without parentheses between Thai/English names.
+    name = name.replace("สำนักงานใหญ่", " ")
+
     name = re.sub(r"\s+", " ", name).strip(" ,;:-")
 
     # ใช้เฉพาะกรณีที่มีชื่อบริษัทภาษาไทย

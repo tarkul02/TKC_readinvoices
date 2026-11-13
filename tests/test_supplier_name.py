@@ -50,5 +50,34 @@ class SupplierNameTests(unittest.TestCase):
         self.assertEqual(remove_supplier_logo_fragments(name, [THAI, ENGLISH], buyer_name=ENGLISH), name)
 
 
+class SupplierOfficeLabelTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import ast
+        import re
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parents[1] / '03_430000848.py'
+        tree = ast.parse(path.read_text())
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                     and node.name == 'clean_supplier_legal_ending']
+        cls.ns = {'re': re}
+        exec(compile(ast.Module(body=functions, type_ignores=[]), str(path), 'exec'), cls.ns)
+
+    def test_office_label_does_not_pollute_bilingual_supplier_name(self):
+        thai = 'บริษัท ซิก้า (ประเทศไทย) จำกัด'
+        english = 'ka (Thailand) Limited'
+        for label in ('สำนักงานใหญ่', '(สำนักงานใหญ่)', '( สำนักงานใหญ่ )'):
+            with self.subTest(label=label):
+                self.assertEqual(self.ns['clean_supplier_legal_ending'](
+                    thai + ' ' + label + ' ' + english), thai + ' ' + english)
+
+    def test_english_only_and_label_free_names(self):
+        clean = self.ns['clean_supplier_legal_ending']
+        self.assertEqual(clean('EXAMPLE LTD. สำนักงานใหญ่'), 'EXAMPLE LTD.')
+        name = 'บริษัท ตัวอย่าง จำกัด (มหาชน) EXAMPLE PUBLIC COMPANY LIMITED'
+        self.assertEqual(clean(name), name)
+
+
 if __name__ == '__main__':
     unittest.main()
