@@ -91,6 +91,47 @@ class SupplierMatchingTests(unittest.TestCase):
             self.assertIsNone(ws['A5'].fill.patternType)
             result.close()
 
+    def test_rerun_removes_stale_highlights_and_reapplies_current_errors(self):
+        from openpyxl.styles import PatternFill
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "rerun.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["VendorAddress", "Address", "Emessage", "Assignment"])
+            ws.append(["1/23 Road 24130", "370 Road 10570",
+                       "Supplier Address is NOT MATCHING", "invoice.pdf"])
+            ws.append(["123", "456", None, "other.pdf"])
+            ws['B3'].fill = PatternFill(fill_type="solid", fgColor="00FF00")
+            ws['D2'].fill = PatternFill(fill_type="solid", fgColor="FFEB9C")
+            wb.save(path)
+            wb.close()
+            highlight_excel_errors(path)
+            wb = load_workbook(path)
+            ws = wb.active
+            self.assertEqual(ws['A2'].fill.fgColor.rgb, '00FFEB9C')
+            append_emessage(ws['C2'], ["Name Address is NOT MATCHING"])
+            wb.save(path)
+            wb.close()
+            highlight_excel_errors(path)
+            wb = load_workbook(path)
+            ws = wb.active
+            self.assertIsNone(ws['A2'].fill.patternType)
+            self.assertEqual(ws['B2'].fill.fgColor.rgb, '00FFEB9C')
+            self.assertEqual(ws['C2'].fill.fgColor.rgb, '00FFEB9C')
+            append_emessage(ws['C2'], [])
+            wb.save(path)
+            wb.close()
+            highlight_excel_errors(path)
+            wb = load_workbook(path)
+            ws = wb.active
+            self.assertIsNone(ws['C2'].value)
+            for column in ('A', 'B', 'C'):
+                self.assertIsNone(ws[f'{column}2'].fill.patternType)
+            self.assertEqual(ws['B3'].fill.fgColor.rgb, '0000FF00')
+            self.assertEqual(ws['D2'].fill.fgColor.rgb, '00FFEB9C')
+            wb.close()
+
 
 class AddressMatchingTests(unittest.TestCase):
     def test_leading_ocr_quote_does_not_invent_missing_digits(self):

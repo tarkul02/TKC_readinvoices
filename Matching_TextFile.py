@@ -707,7 +707,22 @@ def highlight_excel_errors(excel_path):
         "VATAmount is NOT MATCHING": ["VATAmount"],
         "AmountIncVat is NOT MATCHING": ["AmountIncVat"],
     }
+    # Rebuild validation highlights on every run, including rows whose errors
+    # have been cleared. Preserve fills with other colors and unrelated fields.
+    highlight_fields = {"Emessage", *REQUIRED_FIELDS}
+    for fields in error_field_map.values():
+        highlight_fields.update(fields)
+    highlight_columns = {
+        col for header, col in column_map.items()
+        if header.casefold() in {field.casefold() for field in highlight_fields}
+    }
     for row_number in range(2, ws.max_row + 1):
+        for col_number in highlight_columns:
+            cell = ws.cell(row=row_number, column=col_number)
+            color = cell.fill.fgColor
+            if (cell.fill.patternType == "solid" and color.type == "rgb"
+                    and color.rgb[-6:].upper() == "FFEB9C"):
+                cell.fill = PatternFill()
 
         emessage_cell = ws.cell(row=row_number, column=emessage_col)
 
