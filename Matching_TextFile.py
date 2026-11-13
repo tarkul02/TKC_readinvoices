@@ -36,7 +36,7 @@ TEXT_PATH = (
 
 MASTER_PATH = (
 
-    r"C:\TKC\TKC_readinvoices\MasterSuplier\Master Vendor Name (MAT)_TH_ENG.xlsx"
+    r"C:\TKC\Document\MasterSuplier\Master Vendor Name (MAT)_TH_ENG.xlsx"
 
 )
 
