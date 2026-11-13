@@ -4125,7 +4125,10 @@ for input_pdf in pdf_list:
                 invoice_data.get("VendorAddress", ""),
                 invoice_data.get("VendorBranch", ""),
                 ocr_cache["lines"],
+                buyer_tax_ids=EXCLUDE_TAX_IDS,
+                buyer_name=invoice_data.get("CompanyName", ""),
             )
+            raw_address_present = bool(invoice_data.get("VendorAddress", ""))
             invoice_data["VendorAddress"] = selected_address
             if address_status == "unresolved":
                 invoice_data["Emessage"] = append_msg(
@@ -4137,6 +4140,8 @@ for input_pdf in pdf_list:
                 pdf_path=str(pdf_path),
                 vendor_branch=invoice_data.get("VendorBranch", ""),
                 status=address_status,
+                raw_address_present=raw_address_present,
+                selected_address_present=bool(selected_address),
             )
 
             vendor_branch_debug(

@@ -17,6 +17,82 @@ LINES = ['AAPICO Plastics Public Company Limited',
 
 
 class VendorAddressTests(unittest.TestCase):
+    def test_katata_bilingual_header_with_interleaved_page_metadata(self):
+        english = '60/13 MOO 3 MABYANGPORN, PLUAKDAENG, RAYONG 21140 THAILAND'
+        thai = '60/13 หมู่ 3 ตำบลมาบยางพร อำเภอปลวกแดง จังหวัดระยอง 21140'
+        lines = ['INVNO', '50172600545', 'KATATA ELECTRIC (THAILAND) CO.,LTD.(HEAD OFFICE)',
+                 'DATE :', '19/06/2026', 'บริษัท คาทาทา (สำนักงานใหญ่)',
+                 'วันที่', 'PAGE :', english, 'หน้า', '2 OF 2', thai,
+                 'TEL : (033)060-066 FAX : (033)060-077', 'TAX INVOICE',
+                 'MESSERS :', 'THAI KOITO (HEAD OFFICE)', '370 MOO 17 SAMUTPRAKARN 10570']
+        for raw in ['', english + ' ' + thai]:
+            address, status = select_vendor_address(raw, '00000', lines)
+            self.assertEqual((address, status), (english + ' ' + thai, 'selected'))
+            self.assertNotIn('370', address)
+            self.assertNotIn('2 OF 2', address)
+
+    def test_otj_floor_address_before_branch_label(self):
+        address = '6TH FLOOR, 109 CCT BUILDING, SURAWONG ROAD, SURIYAWONG, BANGRAK, BANGKOK 10500'
+        lines = ['O.T.J. CO., LTD.', 'Page 1/ 1', address,
+                 'เลขประจำตัวผู้เสียภาษีอากร', 'TEL 0-2236-7624-5 FAX 0-2236-7623',
+                 '0105536017607', 'Branch : สำนักงานใหญ่', 'TAX INVOICE',
+                 'Buyer', 'THAI KOITO (HEAD OFFICE)', 'Address 370 MOO 17 SAMUTPRAKARN 10570']
+        for raw in ['', address]:
+            self.assertEqual(select_vendor_address(raw, '00000', lines), (address, 'selected'))
+
+    def test_polynet_address_above_branch_label_and_after_document_title(self):
+        street = '888 หมู่ 11 ตำบลบางเสาธง อำเภอบางเสาธง'
+        city = 'จังหวัดสมุทรปราการ 10570'
+        lines = ['ใบกำกับภาษี/ใบส่งสินค้า', 'POLYNET PUBLIC COMPANY LIMITED',
+                 'TAX INVOICE/INVOICE', 'LRQA', street, city, '(เอกสารออกเป็นชุด)',
+                 'CERTIFIED', 'ISO 9001', 'โทร. 02-397-9094-6', '26061117',
+                 'เลขประจำตัวผู้เสียภาษีอากร 0107565000212', 'สาขาสำนักงานใหญ่',
+                 'ชื่อผู้ซื้อ THAI KOITO', 'ที่อยู่ลูกค้า 370 MOO 17 SAMUTPRAKARN 10570']
+        self.assertEqual(select_vendor_address('', '00000', lines),
+                         (street + ' ' + city, 'selected'))
+
+    def test_prospack_repeated_head_office_is_one_bilingual_location(self):
+        thai = '31/5 หมู่ 1 ตำบลศาลาลอย อำเภอท่าเรือ จังหวัดพระนครศรีอยุธยา 13130'
+        english = '31/5 MU 1 SALALOY, TAHREUA, AYUDHAYA 13130'
+        lines = ['PROSPACK INDUSTRY CO., LTD.', 'สำนักงานใหญ่ : ' + thai,
+                 'INDUSTRY', 'CO . , LTD', 'โทร. (035) 341809-10 E-mail : industry@example.test',
+                 'Head Office : ' + english + ' TEL : (035) 341809-10 FAX : (035) 341392',
+                 'เลขประจำตัวผู้เสียภาษีอากร 0145534000022', 'TAX INVOICE/INVOICE',
+                 'CUSTOMER', 'THAI KOITO (HEAD OFFICE)', '370 MOO 17 SAMUTPRAKARN 10570']
+        for raw in ['', thai + ' ' + english]:
+            self.assertEqual(select_vendor_address(raw, '00000', lines),
+                             (thai + ' ' + english, 'selected'))
+
+    def test_empty_raw_does_not_search_buyer_head_office(self):
+        lines = ['Seller company', 'TAX INVOICE', 'Buyer',
+                 'THAI KOITO HEAD OFFICE', '370 MOO 17 SAMUTPRAKARN 10570']
+        self.assertEqual(select_vendor_address('', '00000', lines), ('', 'unresolved'))
+
+    def test_buyer_tax_and_name_are_boundaries_without_buyer_caption(self):
+        for boundary, kwargs in [
+            ('TAX ID 0105529030059', {'buyer_tax_ids': ['0105529030059']}),
+            ('THAI KOITO COMPANY LIMITED (HEAD OFFICE)', {'buyer_name': 'THAI KOITO COMPANY LIMITED'}),
+        ]:
+            self.assertEqual(select_vendor_address('', '00000',
+                ['Seller company', boundary, '370 MOO 17 SAMUTPRAKARN 10570'], **kwargs),
+                ('', 'unresolved'))
+
+    def test_empty_raw_still_selects_correct_office_from_directory(self):
+        self.assertEqual(select_vendor_address('', '00000', LINES),
+                         (HEAD + ' ' + HEAD_EN, 'selected'))
+        self.assertEqual(select_vendor_address('', '00002', LINES),
+                         (BRANCH + ' ' + BRANCH_EN, 'selected'))
+
+    def test_same_house_with_different_postcodes_must_not_merge(self):
+        lines = ['Head Office 31/5 Street Bangkok 10500',
+                 'Head Office 31/5 Street Rayong 21140']
+        self.assertEqual(select_vendor_address('', '00000', lines), ('', 'unresolved'))
+
+    def test_ambiguous_single_postcode_different_houses_without_labels(self):
+        self.assertEqual(select_vendor_address('', '00000',
+            ['31/5 Street Bangkok 10500', '777 Street Bangkok 10500', 'Buyer']),
+            ('', 'unresolved'))
+
     def test_unresolved_address_is_highlighted_in_matched_workbook(self):
         import tempfile
         from pathlib import Path
