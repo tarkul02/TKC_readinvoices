@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from dateutil import parser
 from po_patterns import load_po_patterns, is_po_value
 from vendor_address import select_vendor_address
+from supplier_name import remove_supplier_logo_fragments
 
 # ====================================================
 # 🔐 ตั้งค่า
@@ -3523,6 +3524,12 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
 
     # Final SupplierName cleanup หลัง extraction/fallback/merge ทุกขั้นตอน
     supplier_name = clean_supplier_name(supplier_name)
+    supplier_name = remove_supplier_logo_fragments(
+        supplier_name,
+        ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices),
+        buyer_tax_ids=EXCLUDE_TAX_IDS,
+        buyer_name=company_name,
+    )
 
     # ==========================================================
     # Invoice Date
