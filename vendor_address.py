@@ -95,11 +95,30 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
             text = _clean(text)
         if not text or _META.search(text):
             continue
+        # A company-name line may contain address words such as THAILAND.
+        # It is not an address continuation; preserve unfinished chunks for
+        # later city lines while excluding the company name itself.
+        if (not _starts_address(text)
+                and re.search(r"บริษัท.*จำกัด|\b(?:CO\.?\s*,?\s*LTD\.?|COMPANY\s+LIMITED|PUBLIC\s+COMPANY\s+LIMITED)\b", text, re.I)):
+            current = None
+            continue
         if _starts_address(text):
             current = {'branch': pending_branch, 'text': text}
             chunks.append(current)
-        elif current is not None and (_ADDRESS_WORD.search(text) or _postcodes(text)):
-            current['text'] += ' ' + text
+        elif (_ADDRESS_WORD.search(text) or _postcodes(text)
+              or re.search(r"(?:^|\s)(?:ต|อ|จ|ถ)\.", text)):
+            # Two-column letterheads can interleave Thai and English streets
+            # and cities. Continue an unfinished address in the same language
+            # and branch rather than always appending to the last OCR line.
+            is_thai = bool(re.search(r"[ก-๙]", text))
+            unfinished = [chunk for chunk in chunks
+                          if chunk['branch'] == pending_branch
+                          and not _postcodes(chunk['text'])
+                          and bool(re.search(r"[ก-๙]", chunk['text'])) == is_thai]
+            target = unfinished[-1] if unfinished else current
+            if target is not None:
+                target['text'] += ' ' + text
+                current = target
         else:
             current = None
 

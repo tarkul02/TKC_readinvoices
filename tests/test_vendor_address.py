@@ -119,6 +119,36 @@ class VendorAddressTests(unittest.TestCase):
         self.assertNotIn('370', address)
         self.assertNotIn('10570', address)
 
+    def test_biko_two_column_addresses_with_interleaved_languages(self):
+        thai_street = '643 หมู่ 10 ต.ท่าตูม'
+        thai_city = 'อ.ศรีมหาโพธิ จ.ปราจีนบุรี 25140'
+        english_street = '643 Moo 10 Thatoom,'
+        english_city = 'Srimahaphot, Prachinburi 25140'
+        expected = thai_street+' '+thai_city+' '+english_street+' '+english_city
+        for invoice in ['B26060166', 'B26060167', 'B26060170']:
+            lines = ['CHO', 'บริษัท บิโก้ ปราจีนบุรี (ไทยแลนด์) จำกัด',
+                     'สำนักงานใหญ่ : '+thai_street,
+                     'BIKO PRACHINBURI (THAILAND) CO.,LTD.',
+                     'Head Office : '+english_street, thai_city, english_city,
+                     'โทรศัพท์ 037-629-721-2', 'Tel.037-629-721-2',
+                     'ต้นฉบับลูกค้า', 'ใบกำกับภาษี/ใบส่งสินค้า/ใบแจ้งหนี้',
+                     'เลขประจำตัวผู้เสียภาษีอากร 0255555000683', invoice,
+                     'ชื่อลูกค้า : THAI KOITO CO., LTD.',
+                     '370 MOO 17 SAMUTPRAKARN 10570']
+            for raw in ['', expected, english_street+' '+english_city]:
+                with self.subTest(invoice=invoice, raw=raw):
+                    self.assertEqual(select_vendor_address(raw, '00000', lines),
+                                     (expected, 'selected'))
+
+    def test_interleaved_continuation_does_not_cross_branch(self):
+        lines = ['สำนักงานใหญ่ 643 หมู่ 10 ต.ท่าตูม',
+                 'Branch 2 777 Moo 6 Road', 'อ.เมือง จ.ระยอง 21140',
+                 'City Road 21140', 'Buyer', '370 Road 10570']
+        # No city can be borrowed from branch 2 to complete head office.
+        address, _ = select_vendor_address('', '00000', lines)
+        self.assertNotIn('777', address)
+        self.assertNotIn('21140', address)
+
     def test_unresolved_address_is_highlighted_in_matched_workbook(self):
         import tempfile
         from pathlib import Path
