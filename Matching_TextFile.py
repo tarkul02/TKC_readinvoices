@@ -980,20 +980,6 @@ def validate_excel(
 
         # ----------------------------------------------------
 
-        tax_invoice_no = get_excel_value(
-
-            "TaxInvoiceNo"
-
-        )
-
-        invoice_key = normalize_invoice(
-
-            tax_invoice_no
-
-        )
-
-        txt_record = None
-
         if invoice_key:
 
             matched_records = summary_records.get(

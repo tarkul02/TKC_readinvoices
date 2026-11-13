@@ -3948,14 +3948,6 @@ for input_pdf in pdf_list:
                 )
 
             # ==================================================
-            # Company Fix จาก CompanyAddress
-            # ถ้าที่อยู่มีเลข 370 → กำหนด Company เป็น XXX1
-            # ==================================================
-            Company_address = str(
-                invoice_data.get("CompanyAddress", "") or ""
-            ).strip()
-
-            # ==================================================
             # Company Fix + Validate Branch จากค่าที่ส่งมาตอน Run
             # ==================================================
 
@@ -4101,10 +4093,6 @@ for input_pdf in pdf_list:
             # VENDOR / TPM DETECTION (SINGLE MODEL)
             # ==================================================
             is_union_plastic = "UNION PLASTIC" in full_text
-            vendor_tax_id = clean_tax_id(
-                invoice_data.get("VendorTaxId", "")
-            )
-
             vendor_tax_id = clean_tax_id(
                 invoice_data.get("VendorTaxId", "")
             )
