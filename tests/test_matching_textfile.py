@@ -222,6 +222,27 @@ class AddressMatchingTests(unittest.TestCase):
         rows = [master, {"StreetNo": "999", "PostCode": "10111"}]
         self.assertFalse(any(address_matches_master("123/4 Road 10111", m) for m in rows))
 
+    def test_master_tokens_can_appear_anywhere_in_ocr(self):
+        master = {"StreetNo": "37 Main Road", "PostCode": "10570 extra"}
+        for supplier in (False, True):
+            for address, expected in [
+                ("Building A เลขที่37 Road 10570 Thailand", True),
+                ("10570 Thailand Building A 37 Road", True),
+                ("Building A 370 Road 10570 Thailand", False),
+                ("Building A 137 Road 10570 Thailand", False),
+                ("370 Road 10570 Thailand; 37 Road", True),
+                ("Building A 37 Road 10571 Thailand", False),
+                ("Building A 37 Road Thailand", True),
+                ("Building A 37 Road 110570 Thailand", True),
+                ("Building A 37 Road 110570 and 10571", False),
+                ("Building A 37 Road 10571 and 10570 Thailand", True),
+            ]:
+                with self.subTest(supplier=supplier, address=address):
+                    errors = address_matching_errors(
+                        address, [dict(master, BranchCode="00001")], "1", supplier
+                    )
+                    self.assertEqual(not errors, expected)
+
     def test_missing_fields_only_compare_available_pairs(self):
         self.assertTrue(address_matches_master("123 Road 10110", {"StreetNo": "123", "PostCode": ""}))
         self.assertTrue(address_matches_master("", {"StreetNo": "123", "PostCode": "10110"}))

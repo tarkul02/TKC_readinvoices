@@ -227,15 +227,27 @@ def normalize_address_comparison(value, ignore_commas=False):
 
 def address_matches_master(address, master_row, ignore_commas=False):
     """Compare available street/postcode pairs within the same Master row."""
-    street = normalize_address_comparison(first_address_word(address), ignore_commas)
+    compact_address = normalize_address_comparison(address, ignore_commas).casefold()
     master_street = normalize_address_comparison(first_address_word(master_row["StreetNo"]), ignore_commas)
-    if street and master_street and street != master_street:
+
+    # Search before removing separators so separate numbers do not become one
+    # number at the match boundaries; allow the existing cleanup within a token.
+    ocr_address = str(address or "").casefold()
+    separator = r"[ \t,]*" if ignore_commas else r"[ \t]*"
+
+    def contains_number_bounded(value):
+        pattern = separator.join(re.escape(char) for char in value)
+        return re.search(r"(?<!\d)" + pattern + r"(?!\d)", ocr_address) is not None
+
+    if compact_address and master_street and not contains_number_bounded(master_street):
         return False
-    compact_address = normalize_address_comparison(address, ignore_commas)
-    postcode = compact_address[-5:]
-    master_postcode = normalize_address_comparison(master_row.get("PostCode"), ignore_commas)
-    if re.fullmatch(r"[0-9]{5}", postcode) and master_postcode:
-        return postcode == master_postcode
+    master_postcode = normalize_address_comparison(
+        first_address_word(master_row.get("PostCode")), ignore_commas
+    )
+    # Preserve the optional-postcode rule when OCR has no five-digit postcode.
+    postcode_pattern = r"(?<!\d)" + separator.join([r"[0-9]"] * 5) + r"(?!\d)"
+    if re.search(postcode_pattern, ocr_address) and master_postcode:
+        return contains_number_bounded(master_postcode)
     return True
 
 
@@ -1118,7 +1130,7 @@ def validate_excel(
         ))
 
         # Read supplier address by header, matched by VendorTaxId.
-        # Compare the first Street token and available five-digit postcode.
+        # Search all OCR address positions for the Master Street token and available postcode.
         if master_found:
             errors.extend(address_matching_errors(
                 get_excel_value("VendorAddress"), master_matches,
