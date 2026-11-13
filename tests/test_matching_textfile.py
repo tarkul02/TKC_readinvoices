@@ -182,27 +182,6 @@ class SupplierMatchingTests(unittest.TestCase):
             wb.close()
 
 
-class InvoicePrefixTests(unittest.TestCase):
-    def test_oth_numeric_prefix_fallback_for_uploaded_invoices(self):
-        from Matching_TextFile import find_summary_invoice_records, normalize_invoice
-        for number in ('2606200023', '2606200022', '2606200019', '2606190094'):
-            records = [{'TaxInvoiceNo': number}]
-            with self.subTest(number=number):
-                self.assertEqual(find_summary_invoice_records(
-                    normalize_invoice('OTH' + number), {number: records}), records)
-
-    def test_exact_match_has_priority_and_other_numbers_are_unchanged(self):
-        from Matching_TextFile import find_summary_invoice_records, normalize_invoice
-        exact = [{'TaxInvoiceNo': 'OTH123'}]
-        fallback = [{'TaxInvoiceNo': '123'}]
-        records = {'oth123': exact, '123': fallback}
-        self.assertEqual(find_summary_invoice_records(normalize_invoice('OTH123'), records), exact)
-        self.assertEqual(find_summary_invoice_records('123', records), fallback)
-        for number in ('abc123', 'xoth123', 'othabc123', 'oth', 'oth-123', ''):
-            with self.subTest(number=number):
-                self.assertEqual(find_summary_invoice_records(number, records), [])
-
-
 class AddressMatchingTests(unittest.TestCase):
     def test_leading_ocr_quote_does_not_invent_missing_digits(self):
         rows = [{'BranchCode': '', 'StreetNo': '37 Road', 'PostCode': '10570'}]

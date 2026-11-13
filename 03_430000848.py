@@ -3206,6 +3206,13 @@ def clean_po_from_field(purchase_order_no):
 
     return ",".join(dict.fromkeys(cleaned))
 
+def format_nifco_invoice_no(value):
+    """Use the NIFCO Text Report prefix once, preserving a missing invoice."""
+    number = str(value or "").strip()
+    number = re.sub(r"^(?:OTH/?)+", "", number, flags=re.IGNORECASE).strip()
+    return "OTH/" + number if number else ""
+
+
 def extract_tax_invoice_no_from_pages(invoices, ocr_cache=None):
     """Fallback InvoiceNo จากผล prebuilt-invoice เพียง model เดียว"""
     if ocr_cache is not None:
@@ -3235,11 +3242,8 @@ def extract_tax_invoice_no_from_pages(invoices, ocr_cache=None):
 
     value = find_first_by_patterns(fallback_patterns, full_text)
 
-    # เดิมใช้ "OTH".join(value) ซึ่งจะแทรก OTH ระหว่างทุกตัวอักษร
-    # รักษาเจตนาเดิมโดยเติม OTH เฉพาะเมื่อ NIFCO และยังไม่มี prefix OTH
     if value and ("NIFCO" in full_text.upper() or "นิฟโก้" in full_text):
-        if not str(value).upper().startswith("OTH"):
-            value = "OTH" + str(value)
+        value = format_nifco_invoice_no(value)
 
     if value and not is_po_value(str(value), PO_PATTERNS):
         return value
@@ -4218,8 +4222,8 @@ for input_pdf in pdf_list:
             #     invoice_data["PostingDate"] = invoice_date_ocr
 
             #Custom Nifco
-            if "NIFCO" in full_text or "นิฟโก้" in full_text:
-                invoice_data["TaxInvoiceNo"] = "OTH" + str(invoice_data.get("TaxInvoiceNo", ""))
+            if "NIFCO" in full_text.upper() or "นิฟโก้" in full_text:
+                invoice_data["TaxInvoiceNo"] = format_nifco_invoice_no(invoice_data.get("TaxInvoiceNo"))
 
             taxRemark = extract_tax_remark(invoices, ocr_cache)
             invoice_data["TaxRemark"] = taxRemark

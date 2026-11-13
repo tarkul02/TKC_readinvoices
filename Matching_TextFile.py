@@ -53,14 +53,6 @@ def normalize_invoice(value):
 
     return re.sub(r"\s+", "", clean(value)).casefold()
 
-def find_summary_invoice_records(invoice_key, summary_records):
-    """Keep exact matches; allow numeric OCR invoice numbers prefixed by OTH."""
-    records = summary_records.get(invoice_key, [])
-    if not records and re.fullmatch(r"oth[0-9]+", invoice_key):
-        records = summary_records.get(invoice_key[3:], [])
-    return records
-
-
 def normalize_tax_id(value):
 
     return re.sub(r"\D", "", clean(value))
@@ -920,7 +912,7 @@ def validate_excel(
 
         if invoice_key:
 
-            matched_records = find_summary_invoice_records(invoice_key, summary_records)
+            matched_records = summary_records.get(invoice_key, [])
 
             if matched_records:
 
