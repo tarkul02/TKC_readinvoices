@@ -93,6 +93,32 @@ class VendorAddressTests(unittest.TestCase):
             ['31/5 Street Bangkok 10500', '777 Street Bangkok 10500', 'Buyer']),
             ('', 'unresolved'))
 
+    def test_maxell_branch_caption_interleaved_in_bilingual_address(self):
+        thai = '62 อาคารธนิยะ ชั้นที่ 7 ห้องเลขที่ 701 ถนนสีลม แขวงสุริยวงศ์ เขตบางรัก กรุงเทพมหานคร 10500'
+        street = '62 THANIYA BUILDING, 7th FLOOR, ROOM 701, SILOM RD.,'
+        city = 'SURIYAWONG, BANGRAK, BANGKOK, 10500 THAILAND'
+        for invoice in ['MJET2606134TK', 'MJET2606135TK']:
+            lines = ['MAXELL JOEI TECH (THAILAND) CO., LTD.',
+                     'ORIGINAL INVOICE / TAX INVOICE',
+                     '62 อาคารธนิยะ ชั้นที่ 7 ห้องเลขที่ 701 ถนนสีลม',
+                     'แขวงสุริยวงศ์ เขตบางรัก กรุงเทพมหานคร 10500', street,
+                     'TAX ID 0105561112936 สำนักงานใหญ่ (HEAD OFFICE)', city,
+                     'Page 1 of 1', 'TEL: (+66)-2-117-0870 FAX: (+66)-2-117-0871',
+                     'ชื่อลูกค้า / Customer Name', 'THAI KOITO (HEAD OFFICE)',
+                     invoice, '370 MOO 17 SAMUTPRAKARN 10570']
+            expected = thai + ' ' + street + ' ' + city
+            for raw in ['', expected]:
+                self.assertEqual(select_vendor_address(raw, '00000', lines),
+                                 (expected, 'selected'))
+
+    def test_branch_caption_cannot_continue_address_with_buyer_lines(self):
+        lines = ['Head Office 62 THANIYA BUILDING SILOM ROAD',
+                 'TAX ID 0105561112936 HEAD OFFICE', 'Buyer',
+                 '370 MOO 17 SAMUTPRAKARN 10570']
+        address, _ = select_vendor_address('', '00000', lines)
+        self.assertNotIn('370', address)
+        self.assertNotIn('10570', address)
+
     def test_unresolved_address_is_highlighted_in_matched_workbook(self):
         import tempfile
         from pathlib import Path

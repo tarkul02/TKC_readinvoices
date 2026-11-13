@@ -80,6 +80,14 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
                     if chunk['branch'] is not None:
                         break
                     chunk['branch'] = code
+                # OCR may interleave a seller tax/branch caption between the
+                # street and city lines. Retain that unfinished address only
+                # when this caption confirms the same branch. The next buyer
+                # boundary still ends the header before any continuation.
+                if (current is not None and current['branch'] == code
+                        and not _postcodes(current['text'])):
+                    pending_branch = code
+                    continue
             pending_branch = code
             current = None
             text = tail
