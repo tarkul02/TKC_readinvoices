@@ -1335,6 +1335,9 @@ def extract_company_tax_id_from_pages(invoices, ocr_cache=None, vendor_tax_id=""
     vendor_tax_id = clean_tax_id(vendor_tax_id)
 
     customer_patterns = [
+        r"\bMESS(?:ERS|RS)\b",
+        r"ขายให้",
+        r"นามผู้ซื้อ",
         r"\bCUSTOMER(?:\s+(?:NAME|ADDRESS|ID|CODE))?\b",
         r"\bACCOUNT\s+TO\b",
         r"\bBILL\s+TO\b",
@@ -1367,10 +1370,14 @@ def extract_company_tax_id_from_pages(invoices, ocr_cache=None, vendor_tax_id=""
     )
 
     def extract_valid_tax_id(text):
-        # clean_tax_id รองรับ O/o -> 0 และ I/l -> 1
-        digits = clean_tax_id(text)
-        for m in re.finditer(r"0\d{12}", digits):
-            tax_id = m.group(0)
+        # Match a complete numeric/OCR-number token before cleaning. Cleaning
+        # the whole sentence turns the O in "NO." and I in "ID" into digits,
+        # producing a shifted, incorrect 13-digit value.
+        token_pattern = r"(?<![A-Za-z0-9])([0-9OoIl](?:[\s-]*[0-9OoIl]){12})(?![A-Za-z0-9])"
+        for match in re.finditer(token_pattern, str(text or "")):
+            tax_id = clean_tax_id(match.group(1))
+            if not re.fullmatch(r"0[0-9]{12}", tax_id):
+                continue
             if vendor_tax_id and tax_id == vendor_tax_id:
                 continue
             return tax_id
