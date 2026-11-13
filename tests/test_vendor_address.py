@@ -38,6 +38,28 @@ class VendorAddressTests(unittest.TestCase):
             self.assertIsNone(ws['C2'].fill.patternType)
             result.close()
 
+    def test_document_title_on_separate_line_ends_address(self):
+        lines = ['สำนักงานใหญ่ ' + HEAD, HEAD_EN, 'TAX INVOICE / INVOICE',
+                 'Unrelated invoice text', 'สาขาที่ 2 ' + BRANCH]
+        self.assertEqual(select_vendor_address(RAW, '00000', lines),
+                         (HEAD + ' ' + HEAD_EN, 'selected'))
+
+    def test_document_title_on_address_line_preserves_postcode(self):
+        for heading in ['TAX INVOICE / INVOICE', 'INVOICE', 'ใบกำกับภาษี / ใบส่งของ']:
+            lines = ['สำนักงานใหญ่ ' + HEAD, HEAD_EN + ' ' + heading,
+                     'Unrelated invoice text', 'สาขาที่ 2 ' + BRANCH]
+            self.assertEqual(select_vendor_address(RAW, '00000', lines),
+                             (HEAD + ' ' + HEAD_EN, 'selected'))
+
+    def test_document_title_in_inline_branch_address(self):
+        self.assertEqual(select_vendor_address(HEAD + ' TAX INVOICE / INVOICE',
+                         '00000', ['สำนักงานใหญ่ ' + HEAD + ' TAX INVOICE / INVOICE']),
+                         (HEAD, 'selected'))
+
+    def test_single_office_raw_address_also_removes_document_title(self):
+        self.assertEqual(select_vendor_address(HEAD_EN + ' TAX INVOICE / INVOICE',
+                         '00000', []), (HEAD_EN, 'unchanged'))
+
     def test_head_office_keeps_only_one_office_both_languages(self):
         address, status = select_vendor_address(RAW, '00000', LINES)
         self.assertEqual((address, status), (HEAD + ' ' + HEAD_EN, 'selected'))
