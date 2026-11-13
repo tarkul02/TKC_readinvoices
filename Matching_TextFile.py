@@ -563,7 +563,8 @@ MATCHING_MESSAGES = {
     "Supplier Address is NOT MATCHING",
     "Name Address is NOT MATCHING",
     "Name is NOT MATCHING with Master Report",
-    "VendorBranch is NOT MATCHING",
+    "VendorBranch is NOT MATCHING",  # Legacy message removed on reruns.
+    "VendorBranch is NOT MATCHING with Text Report",
     "TotalAmount is NOT MATCHING",
     "VATAmount is NOT MATCHING",
     "AmountIncVat is NOT MATCHING",
@@ -702,7 +703,7 @@ def highlight_excel_errors(excel_path):
         "Branch is empty": ["Branch"],
         "VendorBranch is empty": ["VendorBranch"],
         "Name is NOT MATCHING with Master Report": ["Name"],
-        "VendorBranch is NOT MATCHING": ["VendorBranch"],
+        "VendorBranch is NOT MATCHING with Text Report": ["VendorBranch"],
         "TotalAmount is NOT MATCHING": ["TotalAmount"],
         "VATAmount is NOT MATCHING": ["VATAmount"],
         "AmountIncVat is NOT MATCHING": ["AmountIncVat"],
@@ -1176,11 +1177,11 @@ def validate_excel(
 
         )
 
-        if excel_branch != txt_branch:
+        if excel_branch and excel_branch != txt_branch:
 
             errors.append(
 
-                "VendorBranch is NOT MATCHING"
+                "VendorBranch is NOT MATCHING with Text Report"
 
             )
 

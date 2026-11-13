@@ -132,6 +132,44 @@ class SupplierMatchingTests(unittest.TestCase):
             self.assertEqual(ws['D2'].fill.fgColor.rgb, '00FFEB9C')
             wb.close()
 
+    def test_vendor_branch_text_mismatch_skips_empty_ocr_branch(self):
+        from unittest.mock import patch
+        from Matching_TextFile import validate_excel
+
+        headers = ["TaxInvoiceNo", "InvoiceDate", "SupplierName", "VendorTaxId",
+                   "VendorBranch", "VendorAddress", "Address", "TotalAmount",
+                   "VATAmount", "AmountIncVat", "Emessage"]
+        master = {"123": [{"SupplierName_Master_EN": "Vendor",
+                           "SupplierName_Master_TH": "", "BranchCode": "",
+                           "StreetNo": "37", "PostCode": "10570"}]}
+        text = {"inv": [{"InvoiceDate": "2026-06-17", "SupplierName": "Vendor",
+                          "VendorBranch": "00000", "TotalAmount": 100,
+                          "VATAmount": 7, "AmountIncVat": 107}]}
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "input.xlsx"
+            output = Path(folder) / "output.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(headers)
+            for branch in (None, "   ", "00001", "00000"):
+                ws.append(["INV", "2026-06-17", "Vendor", "123", branch,
+                           "37 Road 10570", "", 100, 7, 107,
+                           "VendorBranch is NOT MATCHING"])
+            wb.save(source)
+            wb.close()
+            with patch("Matching_TextFile.load_summary_h_records", return_value=text), \
+                 patch("Matching_TextFile.load_master_supplier", return_value=master):
+                validate_excel(source, source, source, output)
+            highlight_excel_errors(output)
+            wb = load_workbook(output)
+            ws = wb.active
+            self.assertEqual(ws['K2'].value, "VendorBranch is empty")
+            self.assertEqual(ws['K3'].value, "VendorBranch is empty")
+            self.assertEqual(ws['K4'].value, "VendorBranch is NOT MATCHING with Text Report")
+            self.assertEqual(ws['E4'].fill.fgColor.rgb, '00FFEB9C')
+            self.assertIsNone(ws['K5'].value)
+            wb.close()
+
 
 class AddressMatchingTests(unittest.TestCase):
     def test_leading_ocr_quote_does_not_invent_missing_digits(self):
