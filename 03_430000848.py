@@ -850,38 +850,6 @@ def clean_company_address_start(address):
 
     return cleaned
 
-def validate_Company_branch(Company_address, input_branch):
-    """
-    ตรวจสอบ Company Branch จากที่อยู่ เทียบกับค่าที่ส่งเข้ามาตอนรันโปรแกรม
-
-    ตัวอย่าง:
-    python script.py testfile 00000
-
-    ถ้า CompanyAddress มีเลข 370
-        expected = 00000
-
-    ถ้าไม่มี 370
-        expected = 00001
-
-    return:
-        Company_branch
-        is_correct
-        expected_branch
-    """
-
-    Company_address = str(Company_address or "").strip()
-    input_branch = normalize_internal_company_branch(input_branch)
-
-    # กำหนด branch ที่ควรจะเป็นจาก Address
-    if re.search(r"\b(?:370|10570)\b", Company_address):
-        expected_branch = "00000"
-    else:
-        expected_branch = "00001"
-
-    is_correct = input_branch == expected_branch
-
-    return input_branch, is_correct, expected_branch
-
 def extract_vendor_address_from_pages(invoices, ocr_cache=None):
     """
     OCR fallback สำหรับดึง Address ของ Vendor จากข้อความบน Invoice
@@ -1825,11 +1793,11 @@ def append_msg(old_msg, new_msg):
     รวม Emessage โดยไม่ให้ข้อความซ้ำกัน
 
     ตัวอย่าง:
-    old = "Company address does not match | PO does not match Company branch"
+    old = "InvoiceDate is empty | PO does not match Company branch"
     new = "PO does not match Company branch"
 
     result:
-    "Company address does not match | PO does not match Company branch"
+    "InvoiceDate is empty | PO does not match Company branch"
     """
 
     old_msg = str(old_msg or "").strip()
@@ -3948,35 +3916,15 @@ for input_pdf in pdf_list:
                 )
 
             # ==================================================
-            # Company Fix + Validate Branch จากค่าที่ส่งมาตอน Run
+            # Company Branch จากค่าที่ส่งมาตอน Run; ตรวจที่อยู่กับ Master ใน Matching
             # ==================================================
 
             Company_address = str(
                 invoice_data.get("CompanyAddress", "") or ""
             ).strip()
 
-            Company_branch, branch_correct, expected_branch = validate_Company_branch(
-                Company_address,
-                branch_email
-            )
-
+            Company_branch = normalize_internal_company_branch(branch_email)
             invoice_data["CompanyBranch"] = company_branch_to_display(Company_branch)
-
-            if branch_correct:
-                print(
-                    f"✅ Company Branch ถูกต้อง "
-                    f"(Input={Company_branch}, Expected={expected_branch})"
-                )
-            else:
-                print(
-                    f"❌ ที่อยู่ไม่สอดคลองกัน "
-                    f"(Input={Company_branch}, Expected={expected_branch})"
-                )
-
-                invoice_data["Emessage"] = append_msg(
-                    invoice_data.get("Emessage", ""),
-                    "Company address does not match"
-                )
 
             print(f"🏢 CompanyName            : {invoice_data.get('CompanyName', '')}")
             print(f"🆔 CompanyTaxID           : {invoice_data.get('CompanyTaxID', '')}")

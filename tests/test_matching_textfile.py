@@ -132,6 +132,17 @@ class SupplierMatchingTests(unittest.TestCase):
             self.assertEqual(ws['D2'].fill.fgColor.rgb, '00FFEB9C')
             wb.close()
 
+    def test_retired_company_address_error_is_removed_on_rerun(self):
+        wb = Workbook()
+        cell = wb.active['A1']
+        cell.value = "Company address does not match | PO does not match Company branch"
+        append_emessage(cell, ["Name Address is NOT MATCHING"])
+        self.assertEqual(cell.value,
+                         "PO does not match Company branch | Name Address is NOT MATCHING")
+        append_emessage(cell, [])
+        self.assertEqual(cell.value, "PO does not match Company branch")
+        wb.close()
+
     def test_vendor_branch_text_mismatch_skips_empty_ocr_branch(self):
         from unittest.mock import patch
         from Matching_TextFile import validate_excel
