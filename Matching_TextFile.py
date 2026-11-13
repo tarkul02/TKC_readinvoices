@@ -667,6 +667,7 @@ def highlight_excel_errors(excel_path):
     
     error_field_map = {
         "Company address does not match": ["Address", "Branch"],
+        "VendorAddress could not be resolved for VendorBranch": ["VendorAddress", "VendorBranch"],
         "PO does not match Company branch": ["PurchaseOrderNo", "Branch"],
         "Duplicate Amount Found": ["TotalAmount", "VATAmount", "AmountIncVat"],
         "Amount format invalid": ["TotalAmount", "VATAmount", "AmountIncVat"],

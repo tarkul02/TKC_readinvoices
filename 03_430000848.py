@@ -18,6 +18,7 @@ from azure.core.exceptions import ServiceRequestError, HttpResponseError
 from datetime import datetime, timedelta
 from dateutil import parser
 from po_patterns import load_po_patterns, is_po_value
+from vendor_address import select_vendor_address
 
 # ====================================================
 # 🔐 ตั้งค่า
@@ -4117,6 +4118,25 @@ for input_pdf in pdf_list:
                 vendor_tax_id=invoice_data.get("VendorTaxId", ""),
                 supplier_name=invoice_data.get("SupplierName", ""),
                 pdf_path=pdf_path
+            )
+
+            # Select the seller address only after its issuing branch is known.
+            selected_address, address_status = select_vendor_address(
+                invoice_data.get("VendorAddress", ""),
+                invoice_data.get("VendorBranch", ""),
+                ocr_cache["lines"],
+            )
+            invoice_data["VendorAddress"] = selected_address
+            if address_status == "unresolved":
+                invoice_data["Emessage"] = append_msg(
+                    invoice_data.get("Emessage", ""),
+                    "VendorAddress could not be resolved for VendorBranch",
+                )
+            vendor_branch_debug(
+                'VENDOR_ADDRESS_SELECTION',
+                pdf_path=str(pdf_path),
+                vendor_branch=invoice_data.get("VendorBranch", ""),
+                status=address_status,
             )
 
             vendor_branch_debug(
