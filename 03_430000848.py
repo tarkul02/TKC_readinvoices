@@ -3206,11 +3206,12 @@ def clean_po_from_field(purchase_order_no):
 
     return ",".join(dict.fromkeys(cleaned))
 
-def format_nifco_invoice_no(value):
-    """Use the NIFCO Text Report prefix once, preserving a missing invoice."""
+def format_nifco_invoice_no(value, full_text):
+    """Add OTH/ only when the full OCR text contains an OTH token/prefix."""
     number = str(value or "").strip()
     number = re.sub(r"^(?:OTH/?)+", "", number, flags=re.IGNORECASE).strip()
-    return "OTH/" + number if number else ""
+    has_oth = re.search(r"(?<!\w)OTH(?=\b|[0-9])", str(full_text or ""), re.IGNORECASE)
+    return "OTH/" + number if number and has_oth else number
 
 
 def extract_tax_invoice_no_from_pages(invoices, ocr_cache=None):
@@ -3243,7 +3244,7 @@ def extract_tax_invoice_no_from_pages(invoices, ocr_cache=None):
     value = find_first_by_patterns(fallback_patterns, full_text)
 
     if value and ("NIFCO" in full_text.upper() or "นิฟโก้" in full_text):
-        value = format_nifco_invoice_no(value)
+        value = format_nifco_invoice_no(value, full_text)
 
     if value and not is_po_value(str(value), PO_PATTERNS):
         return value
@@ -4223,7 +4224,9 @@ for input_pdf in pdf_list:
 
             #Custom Nifco
             if "NIFCO" in full_text.upper() or "นิฟโก้" in full_text:
-                invoice_data["TaxInvoiceNo"] = format_nifco_invoice_no(invoice_data.get("TaxInvoiceNo"))
+                invoice_data["TaxInvoiceNo"] = format_nifco_invoice_no(
+                    invoice_data.get("TaxInvoiceNo"), full_text
+                )
 
             taxRemark = extract_tax_remark(invoices, ocr_cache)
             invoice_data["TaxRemark"] = taxRemark

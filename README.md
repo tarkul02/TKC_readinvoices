@@ -339,3 +339,12 @@ python -m pip install -r requirements.txt
 - หาก Azure Key เคยถูก Commit หรือเผยแพร่ ให้ Rotate/Regenerate Key ทันที
 - เก็บเฉพาะตัวอย่าง Configuration เช่น `.env.example` ใน Git
 - ไม่ควร Commit ไฟล์ Input, Output หรือ Debug ที่อาจมีข้อมูล Invoice จริง
+
+### เงื่อนไข Invoice No ของ NIFCO
+
+สำหรับเอกสารที่ OCR พบ `NIFCO` หรือ `นิฟโก้` โปรแกรมตรวจข้อความ OCR ทั้งใบ:
+
+- พบ `OTH` เป็นคำแยก หรือเป็น prefix ของเลข เช่น `OTH2606200023` / `OTH/2606200023` จะจัดเลข Invoice ให้มี `OTH/` นำหน้าเพียงครั้งเดียว
+- ไม่พบ `OTH` จะใช้เลข Invoice โดยไม่มี prefix `OTH/` รวมถึงตัด prefix เดิมออก
+- ไม่ใช้ `OTH` ที่เป็นส่วนหนึ่งของคำอื่น เช่น `OTHER` หรือ `BOTH`
+- หาก OCR อ่าน `OTH` ไม่เจอจากเอกสารที่ไม่ชัด โปรแกรมจะไม่เติม prefix และหากไม่มีเลข Invoice จะคงค่าว่าง
