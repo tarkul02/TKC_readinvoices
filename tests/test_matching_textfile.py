@@ -8,6 +8,7 @@ from openpyxl import Workbook, load_workbook
 from Matching_TextFile import (
     address_matches_master, load_master_supplier, supplier_matching_errors,
     append_emessage, highlight_excel_errors,
+    find_summary_text_files, load_summary_reports, move_summary_reports,
     address_matching_errors, validate_empty_branches,
 )
 
@@ -349,6 +350,57 @@ class AddressMatchingTests(unittest.TestCase):
             wb.close()
             rows = load_master_supplier(path)["123"]
             self.assertEqual([r["PostCode"] for r in rows], ["10110", "00110"])
+
+
+class MultipleTextReportsTests(unittest.TestCase):
+    def test_reports_from_all_top_level_files_and_move_all(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "input"
+            source.mkdir()
+            nested = source / "nested"
+            nested.mkdir()
+
+            def report(path, invoice):
+                fields = [""] * 20
+                fields[0], fields[2], fields[5] = "H", "16112026", invoice
+                fields[13], fields[15], fields[16] = "107", "100", "7"
+                fields[19] = "Vendor (00000)"
+                path.write_text("|".join(fields), encoding="utf-8")
+
+            report(source / "a.txt", "INV-1")
+            report(source / "b.TXT", "INV-2")
+            report(nested / "ignored.txt", "INV-3")
+            (source / "directory.txt").mkdir()
+            (source / "notes.csv").write_text("ignored")
+            files = find_summary_text_files(source)
+            records = load_summary_reports(files)
+            self.assertEqual(set(records), {"inv-1", "inv-2"})
+            self.assertEqual(records["inv-2"][0]["TotalAmount"], "100")
+            self.assertEqual(records.get("missing", []), [])
+            self.assertEqual(find_summary_text_files(source / "a.txt"), [str(source / "a.txt")])
+            destination = root / "output"
+            move_summary_reports(files, destination)
+            self.assertEqual({p.name for p in destination.iterdir()}, {"a.txt", "b.TXT"})
+            self.assertTrue((nested / "ignored.txt").exists())
+            move_summary_reports(find_summary_text_files(destination), destination)
+            with self.assertRaises(FileNotFoundError):
+                find_summary_text_files(source)
+
+    def test_collision_prevents_any_report_from_moving(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            destination = root / "output"
+            destination.mkdir()
+            first, second = root / "a.txt", root / "b.txt"
+            first.write_text("first")
+            second.write_text("second")
+            (destination / "b.txt").write_text("existing")
+            with self.assertRaises(FileExistsError):
+                move_summary_reports([str(first), str(second)], destination)
+            self.assertTrue(first.exists())
+            self.assertTrue(second.exists())
+            self.assertEqual((destination / "b.txt").read_text(), "existing")
 
 
 if __name__ == "__main__":

@@ -311,6 +311,48 @@ REQUIRED_FIELDS = [
 
 # ============================================================
 
+def find_summary_text_files(text_path):
+    """Accept a single report or all TXT files directly inside a folder."""
+    text_path = os.fspath(text_path)
+    if os.path.isdir(text_path):
+        files = sorted(
+            entry.path for entry in os.scandir(text_path)
+            if entry.is_file() and entry.name.lower().endswith(".txt")
+        )
+        if not files:
+            raise FileNotFoundError(f"ไม่พบไฟล์ .txt ในโฟลเดอร์: {text_path}")
+        return files
+    if not os.path.isfile(text_path):
+        raise FileNotFoundError(f"File not found: {text_path}")
+    return [text_path]
+
+
+def load_summary_reports(text_paths):
+    records = {}
+    for text_path in text_paths:
+        for invoice_key, rows in load_summary_h_records(text_path).items():
+            records.setdefault(invoice_key, []).extend(rows)
+    return records
+
+
+def move_summary_reports(text_paths, destination_dir):
+    """Check every destination before moving reports; never overwrite files."""
+    os.makedirs(destination_dir, exist_ok=True)
+    moves = []
+    for text_path in text_paths:
+        destination = os.path.join(destination_dir, os.path.basename(text_path))
+        if os.path.normcase(os.path.abspath(text_path)) == os.path.normcase(os.path.abspath(destination)):
+            continue
+        if not os.path.isfile(text_path):
+            raise FileNotFoundError(f"ไม่พบ TXT ต้นฉบับสำหรับย้าย: {text_path}")
+        if os.path.exists(destination):
+            raise FileExistsError(f"มี TXT ชื่อเดียวกันที่ปลายทางแล้ว ไม่เขียนทับ: {destination}")
+        moves.append((text_path, destination))
+    for source, destination in moves:
+        shutil.move(source, destination)
+        print(f"📦 Moved TXT: {source} -> {destination}")
+
+
 def load_summary_h_records(txt_path):
 
     """
@@ -743,7 +785,6 @@ def validate_excel(
     for path in (
 
         excel_path,
-        txt_path,
         master_path
     ):
 
@@ -756,9 +797,7 @@ def validate_excel(
     # Load TXT H records
     # --------------------------------------------------------
 
-    summary_records = load_summary_h_records(
-        txt_path
-    )
+    summary_records = load_summary_reports(find_summary_text_files(txt_path))
 
     # --------------------------------------------------------
     # Load Master Supplier
@@ -1322,6 +1361,8 @@ if __name__ == "__main__":
 
         )
 
+    text_files = find_summary_text_files(text_path)
+
     validate_excel(
 
         excel_path,
@@ -1350,27 +1391,7 @@ if __name__ == "__main__":
 
     os.makedirs(destination_dir, exist_ok=True)
 
-    txt_destination = os.path.join(destination_dir, os.path.basename(text_path))
-
-    if os.path.normcase(os.path.abspath(text_path)) != os.path.normcase(os.path.abspath(txt_destination)):
-
-        if not os.path.isfile(text_path):
-
-            raise FileNotFoundError(f"ไม่พบ TXT ต้นฉบับสำหรับย้าย: {text_path}")
-
-        if os.path.exists(txt_destination):
-
-            raise FileExistsError(f"มี TXT ชื่อเดียวกันที่ปลายทางแล้ว ไม่เขียนทับ: {txt_destination}")
-
-        shutil.move(text_path, txt_destination)
-
-        print(f"📦 Moved TXT: {text_path} -> {txt_destination}")
-
-    else:
-
-        print(f"📄 TXT อยู่ในโฟลเดอร์ผลลัพธ์แล้ว: {text_path}")
-
-
+    move_summary_reports(text_files, destination_dir)
 
     # ส่ง Excel ที่ผ่าน Validation และ Highlight แล้ว พร้อมสรุป Emessage
     send_invoice_email(output_excel_path)
