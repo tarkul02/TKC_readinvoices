@@ -3083,6 +3083,7 @@ def extract_tax_invoice_no_from_pages(invoices, ocr_cache=None):
         return value
 
     fallback_patterns = [
+        r"เลขที่\s*ใบ\s*กำกับ(?:\s*ภาษี)?\s*[:：]?\s*([A-Za-z0-9][A-Za-z0-9\-/]{4,29})",
         r"Tax\s*Invoice\s*No\.?\s*[:：]?\s*([A-Za-z0-9\-\/]{5,30})",
         r"Invoice\s*No\.?\s*[:：]?\s*([A-Za-z0-9\-\/]{5,30})",
         r"เลขที่\s*[:：]?\s*([A-Za-z0-9\-\/]{5,30})",
@@ -3576,18 +3577,27 @@ def merge_invoice_row(existing, new):
 def add_or_merge_row(all_data, invoice_data):
     current_tax = (invoice_data.get("TaxInvoiceNo") or "").strip()
 
+    def same_vendor(left, right):
+        left_tax = clean_tax_id(left.get("VendorTaxId", ""))
+        right_tax = clean_tax_id(right.get("VendorTaxId", ""))
+        if left_tax and right_tax:
+            return left_tax == right_tax
+        left_name = re.sub(r"\W", "", str(left.get("SupplierName", ""))).casefold()
+        right_name = re.sub(r"\W", "", str(right.get("SupplierName", ""))).casefold()
+        return bool(left_name and left_name == right_name)
+
     if current_tax:
         for row in all_data:
-            if (row.get("TaxInvoiceNo") or "").strip() == current_tax:
+            if ((row.get("TaxInvoiceNo") or "").strip() == current_tax
+                    and same_vendor(row, invoice_data)):
                 merge_invoice_row(row, invoice_data)
                 return
-
-    current_assignment = invoice_data.get("Assignment", "")
-    if not current_tax and all_data:
-        last = all_data[-1]
-        if last.get("Assignment") == current_assignment:
-            merge_invoice_row(last, invoice_data)
-            return
+    else:
+        # Being adjacent in the same PDF does not prove invoice continuation.
+        invoice_data["Emessage"] = append_msg(
+            invoice_data.get("Emessage", ""),
+            "Invoice number missing; kept as separate record",
+        )
 
     all_data.append(invoice_data)
 
