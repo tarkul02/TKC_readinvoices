@@ -739,6 +739,10 @@ def highlight_excel_errors(excel_path):
         )
 
         mark_cell(row_number, "Emessage", warning=copy_warning_only)
+        if any(part.strip().startswith("Amount review:") for part in emessage.split(" | ")):
+            for field in ("TotalAmount", "VATAmount", "AmountIncVat"):
+                mark_cell(row_number, field)
+
 
         # Required Field Error เช่น VendorTaxId is empty
 

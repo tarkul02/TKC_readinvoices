@@ -20,6 +20,7 @@ from dateutil import parser
 from po_patterns import load_po_patterns, is_po_value
 from vendor_address import select_vendor_address
 from supplier_name import remove_supplier_logo_fragments
+from invoice_amounts import parse_amount, reconcile_page_amounts, resolve_amounts, merge_amounts
 
 # ====================================================
 # 🔐 ตั้งค่า
@@ -2936,158 +2937,6 @@ def extract_tax_id_from_pages(invoices, ocr_cache=None):
 
     return ""
 
-# def extract_vat_from_pages(invoices):
-#     for page in invoices.pages:
-#         for line in page.lines:
-#             text = line.content.strip() if line.content else ""
-#             clean_text = text.replace(",", "")
-
-#             if not re.search(r"VAT\s*7\s*%", clean_text, re.IGNORECASE):
-#                 continue
-
-#             after_vat = re.split(
-#                 r"VAT\s*7\s*%",
-#                 clean_text,
-#                 flags=re.IGNORECASE
-#             )[-1]
-#             nums = re.findall(r"\d+\.\d{2}", after_vat)
-
-#             if nums:
-#                 return float(nums[0])
-
-#     return 0.0
-
-def extract_vat_from_pages(invoices, ocr_cache=None):
-
-    if ocr_cache is not None:
-        full_text = ocr_cache["full_text"]
-    else:
-        full_text = "\n".join(
-            line.content.strip()
-            for page in invoices.pages
-            for line in page.lines
-            if line.content
-        )
-
-    full_text = full_text.replace(",", "")
-
-    patterns = [
-        r"SUB\s*TOTAL[\s\S]{0,150}?TOTAL\s*TAX[\s\S]{0,50}?VAT\s*7\s*%[\s\S]{0,50}?(\d+\.\d{2})",
-        r"TOTAL\s+BEFORE\s+VAT[\s\S]{0,150}?VAT\s*7\s*%[\s\S]{0,50}?(\d+\.\d{2})",
-        r"NET\s+AMOUNT[\s\S]{0,150}?VAT\s*7\s*%[\s\S]{0,50}?(\d+\.\d{2})",
-        r"AMOUNT\s+BEFORE\s+VAT[\s\S]{0,150}?VAT\s*7\s*%[\s\S]{0,50}?(\d+\.\d{2})",
-    ]
-
-    for pattern in patterns:
-        m = re.search(pattern, full_text, re.IGNORECASE)
-        if m:
-            return float(m.group(1))
-
-    matches = re.findall(
-        r"VAT\s*7\s*%[\s\S]{0,30}?(\d+\.\d{2})",
-        full_text,
-        re.IGNORECASE,
-    )
-
-    if matches:
-        return float(matches[-1])
-
-    return 0.0
-
-def extract_amounts_from_pages(invoices, ocr_cache=None):
-    """
-    OCR fallback สำหรับ Amount จากผล prebuilt-invoice รอบเดิม
-
-    รองรับ label เช่น:
-        TOTAL AMOUNT 330.60
-        VAT 7.00%     23.14
-        NET AMOUNT   353.74
-
-    คืนค่า: (total_amount, vat_amount, amount_inc_vat)
-    """
-    lines = ocr_cache["lines"] if ocr_cache is not None else get_all_lines(invoices)
-    full_text = ocr_cache["full_text"] if ocr_cache is not None else "\n".join(lines)
-
-    def clean_amount_text(text):
-        return str(text or "").replace(",", "")
-
-    def first_money(text):
-        # รองรับ 330.60 / 330 / 353.74 และไม่หยิบเปอร์เซ็นต์ 7.00%
-        matches = re.findall(r"(?<![\d.])(\d+(?:\.\d{1,2})?)(?!\s*%)", clean_amount_text(text))
-        for value in reversed(matches):
-            try:
-                number = float(value)
-                if number >= 0:
-                    return number
-            except Exception:
-                pass
-        return 0.0
-
-    def find_by_label(label_patterns):
-        # 1) บรรทัดเดียวกับ label
-        for i, line in enumerate(lines):
-            text = re.sub(r"\s+", " ", clean_amount_text(line)).strip()
-            if not any(re.search(p, text, re.IGNORECASE) for p in label_patterns):
-                continue
-
-            # ตัด label ออกก่อน เพื่อไม่ให้ VAT 7.00% กลายเป็น amount
-            tail = text
-            for p in label_patterns:
-                m = re.search(p, tail, re.IGNORECASE)
-                if m:
-                    tail = tail[m.end():]
-                    break
-
-            value = first_money(tail)
-            if value > 0:
-                return value
-
-            # 2) Azure OCR อาจแยกค่าตัวเลขเป็นบรรทัดถัดไป
-            for j in range(i + 1, min(i + 4, len(lines))):
-                nearby = re.sub(r"\s+", " ", clean_amount_text(lines[j])).strip()
-                # ถ้าเข้าหา label Amount ตัวถัดไป ให้หยุด เพื่อไม่หยิบผิดช่อง
-                if re.search(r"(?:TOTAL\s*AMOUNT|SUB\s*TOTAL|VAT|TOTAL\s*TAX|NET\s*AMOUNT|GRAND\s*TOTAL|INVOICE\s*TOTAL)", nearby, re.IGNORECASE):
-                    break
-                value = first_money(nearby)
-                if value > 0:
-                    return value
-
-        # 3) fallback จาก full text โดยจำกัดระยะหลัง label
-        text = clean_amount_text(full_text)
-        for p in label_patterns:
-            m = re.search(p + r"[\s\S]{0,60}?([0-9]+(?:\.[0-9]{1,2})?)", text, re.IGNORECASE)
-            if m:
-                try:
-                    return float(m.group(1))
-                except Exception:
-                    pass
-        return 0.0
-
-    total_amount = find_by_label([
-        r"\bTOTAL\s*AMOUNT\b",
-        r"\bSUB\s*TOTAL\b",
-        r"\bTOTAL\s+BEFORE\s+VAT\b",
-        r"\bAMOUNT\s+BEFORE\s+VAT\b",
-        r"รวมเงิน",
-        r"รวมราคาสินค้า",
-    ])
-
-    vat_amount = find_by_label([
-        r"\bVAT\s*(?:7(?:\.00)?\s*%)?",
-        r"\bTOTAL\s*TAX\b",
-        r"ภาษีมูลค่าเพิ่ม",
-    ])
-
-    amount_inc_vat = find_by_label([
-        r"\bNET\s*AMOUNT\b",
-        r"\bGRAND\s*TOTAL\b",
-        r"\bINVOICE\s*TOTAL\b",
-        r"ยอดรวม",
-    ])
-
-    return total_amount, vat_amount, amount_inc_vat
-
-
 def clean_po_list(po_list):
     """Normalize, uppercase และตัดค่าซ้ำของ PO"""
     cleaned = []
@@ -3271,33 +3120,9 @@ def find_invoice_no_from_words(invoices):
     return ""
 
 def normalize_amounts(row):
-    try:
-        check_invoice_No = row.get("TaxInvoiceNo","")
-        if check_invoice_No:
-            return row
-        total_amount = normalize_number(row.get("TotalAmount", 0))
-        vat_amount = normalize_number(row.get("VATAmount", 0))
-        amount_inc_vat = normalize_number(row.get("AmountIncVat", 0))
+    """Validate the documented roles; never reorder amounts by magnitude."""
+    return resolve_amounts(row)
 
-        values = [total_amount, vat_amount, amount_inc_vat]
-
-        if len(set(values)) < 3:
-            msg = (
-                f"Duplicate Amount Found "
-                f"(Total={total_amount}, VAT={vat_amount}, AmountIncVat={amount_inc_vat})"
-            )
-            row["Emessage"] = append_msg(row.get("Emessage", ""), msg)
-            return row
-
-        values.sort()
-        row["VATAmount"] = values[0]
-        row["TotalAmount"] = values[1]
-        row["AmountIncVat"] = values[2]
-
-    except Exception:
-        row["Emessage"] = append_msg(row.get("Emessage", ""), "Amount format invalid")
-
-    return row
 
 def check_copy_document(full_text):
     """
@@ -3666,9 +3491,9 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
         "Assignment": "",
         "VendorTaxId": vendor_tax_id,
         "VendorBranch": "",
-        "TotalAmount": normalize_number(total_amount),
-        "VATAmount": normalize_number(vat_amount),
-        "AmountIncVat": normalize_number(amount_inc_vat),
+        "TotalAmount": (float(value) if (value := parse_amount(total_amount)) is not None else None),
+        "VATAmount": (float(value) if (value := parse_amount(vat_amount)) is not None else None),
+        "AmountIncVat": (float(value) if (value := parse_amount(amount_inc_vat)) is not None else None),
         "PurchaseOrderNo": clean_po_from_field(purchase_order_no1),
         "TaxRemark": "",
         "Emessage": "",
@@ -3738,25 +3563,7 @@ def merge_invoice_row(existing, new):
     if vals:
         existing["PurchaseOrderNo"] = ",".join(dict.fromkeys(vals))
 
-    # TotalAmount และ AmountIncVat
-    for field in ["TotalAmount", "AmountIncVat"]:
-        try:
-            if (
-                normalize_number(existing.get(field, 0)) == 0
-                and normalize_number(new.get(field, 0)) > 0
-            ):
-                existing[field] = new.get(field)
-        except Exception:
-            pass
-
-    try:
-        existing_vat = normalize_number(existing.get("VATAmount", 0))
-        new_vat = normalize_number(new.get("VATAmount", 0))
-
-        if new_vat > existing_vat:
-            existing["VATAmount"] = new.get("VATAmount")
-    except Exception:
-        pass
+    merge_amounts(existing, new)
 
     if new.get("Emessage"):
         existing["Emessage"] = append_msg(
@@ -3947,73 +3754,11 @@ for input_pdf in pdf_list:
                 invoice_data["InvoiceDate"] = invoice_date_ocr
                 invoice_data["PostingDate"] = invoice_date_ocr
 
-            # ==================================================
-            # Amount fallback - ใช้ OCR จาก prebuilt-invoice รอบเดิม
-            # ไม่ยิง Azure เพิ่ม และไม่เขียนทับค่าที่ Azure อ่านได้แล้ว
-            # ==================================================
-            ocr_total, ocr_vat, ocr_net = extract_amounts_from_pages(
-                invoices,
-                ocr_cache
+            # Reconcile document-level amount evidence from this one page.
+            # No fixed VAT rate, largest-VAT selection or magnitude sorting.
+            reconcile_page_amounts(
+                invoice_data, ocr_cache["lines"], getattr(invoices, "tables", ()),
             )
-
-            if normalize_number(invoice_data.get("TotalAmount", 0)) == 0:
-                if ocr_total > 0:
-                    invoice_data["TotalAmount"] = round(ocr_total, 2)
-                    print(f"✅ TotalAmount OCR fallback: {ocr_total:.2f}")
-
-            if normalize_number(invoice_data.get("VATAmount", 0)) == 0:
-                if ocr_vat > 0:
-                    invoice_data["VATAmount"] = round(ocr_vat, 2)
-                    print(f"✅ VATAmount OCR fallback: {ocr_vat:.2f}")
-                else:
-                    vat_fallback = extract_vat_from_pages(invoices, ocr_cache)
-                    if vat_fallback:
-                        invoice_data["VATAmount"] = round(vat_fallback, 2)
-
-            if normalize_number(invoice_data.get("AmountIncVat", 0)) == 0:
-                if ocr_net > 0:
-                    invoice_data["AmountIncVat"] = round(ocr_net, 2)
-                    print(f"✅ AmountIncVat OCR fallback: {ocr_net:.2f}")
-
-            # Safety fallback: ถ้า SubTotal ยังหาไม่ได้ แต่ VAT + Net มีครบ
-            # ให้ TotalAmount = AmountIncVat - VATAmount
-            total_now = normalize_number(invoice_data.get("TotalAmount", 0))
-            vat_now = normalize_number(invoice_data.get("VATAmount", 0))
-            net_now = normalize_number(invoice_data.get("AmountIncVat", 0))
-
-            # ==================================================
-            # TotalAmount arithmetic validation / repair
-            #
-            # บาง Invoice Azure อ่าน SubTotal ผิดเป็นเลขเล็ก ๆ เช่น 1
-            # ทั้งที่ VATAmount และ AmountIncVat อ่านได้ถูกต้อง
-            # ตัวอย่าง:
-            #   TotalAmount(Azure) = 1
-            #   VATAmount          = 1161.25
-            #   AmountIncVat       = 17750.53
-            #   ค่าที่ถูกต้อง       = 17750.53 - 1161.25 = 16589.28
-            #
-            # ป้องกันการแก้เอกสารที่มี Discount/ภาษีรูปแบบอื่น:
-            # จะ repair เฉพาะเมื่อค่าที่คำนวณกลับมี VAT ใกล้ 7% เท่านั้น
-            # ==================================================
-            if vat_now > 0 and net_now > 0 and net_now > vat_now:
-                calculated_total = round(net_now - vat_now, 2)
-                calculated_vat = round(calculated_total * 0.07, 2)
-
-                vat_is_7_percent = abs(calculated_vat - vat_now) <= 0.10
-                total_is_wrong = (
-                    total_now <= 0
-                    or abs(total_now - calculated_total) > 0.10
-                )
-
-                if calculated_total > 0 and vat_is_7_percent and total_is_wrong:
-                    old_total = total_now
-                    invoice_data["TotalAmount"] = calculated_total
-                    total_now = calculated_total
-                    print(
-                        f"✅ TotalAmount repaired by VAT validation: "
-                        f"{old_total:.2f} -> {calculated_total:.2f} "
-                        f"({net_now:.2f} - {vat_now:.2f})"
-                    )
 
             if not invoice_data.get("VendorTaxId"):
                 invoice_data["VendorTaxId"] = extract_tax_id_from_pages(invoices, ocr_cache)
@@ -4299,6 +4044,7 @@ REQUIRED_FIELDS = [
 
 for row in all_data:
 
+    resolve_amounts(row)
     errors = []
 
     for field in REQUIRED_FIELDS:
@@ -4307,19 +4053,6 @@ for row in all_data:
 
         if value is None or str(value).strip() == "":
             errors.append(f"{field} is empty")
-
-    # try:
-    #     total_amount = normalize_number(row.get("TotalAmount", 0))
-    #     vat_amount = normalize_number(row.get("VATAmount", 0))
-
-    #     expected_vat = round(total_amount * 0.07, 2)
-
-    #     if abs(vat_amount - expected_vat) > 0.01:
-    #         errors.append(
-    #             "กรุณาเช็ค Amount ทั้ง 3 ช่อง"
-    #         )
-
-    # VAT validation block is disabled above; no except clause is needed.
 
     row["Emessage"] = append_msg(
         row.get("Emessage", ""),
