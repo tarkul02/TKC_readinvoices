@@ -740,8 +740,9 @@ def highlight_excel_errors(excel_path):
 
         mark_cell(row_number, "Emessage", warning=copy_warning_only)
         if any(part.strip().startswith("Amount review:") for part in emessage.split(" | ")):
-            for field in ("TotalAmount", "VATAmount", "AmountIncVat"):
-                mark_cell(row_number, field)
+            # This general arithmetic review marks the base amount only.
+            # Explicit VAT/gross mismatches still highlight their own fields.
+            mark_cell(row_number, "TotalAmount")
 
 
         # Required Field Error เช่น VendorTaxId is empty

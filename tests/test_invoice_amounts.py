@@ -30,7 +30,7 @@ class InvoiceAmountTests(unittest.TestCase):
         resolve_amounts(first)
         self.assertEqual(values(first),(6057.50,424.03,6481.53))
 
-    def test_amount_review_highlights_three_fields_only(self):
+    def test_amount_review_highlights_total_amount_only(self):
         import tempfile
         from pathlib import Path
         from openpyxl import Workbook, load_workbook
@@ -40,13 +40,21 @@ class InvoiceAmountTests(unittest.TestCase):
             book = Workbook()
             sheet = book.active
             sheet.append(['TotalAmount','VATAmount','AmountIncVat','SupplierName','Emessage'])
-            sheet.append([6057.50,39.06,6481.53,'Seller','Amount review: totals do not reconcile'])
+            sheet.append([127692.10,8938.44,136630.40,'Seller','Amount review: totals do not reconcile'])
+            sheet.append([127692.10,8938.44,136630.40,'Seller',
+                          'Amount review: totals do not reconcile | VATAmount is NOT MATCHING'])
             book.save(path)
             highlight_excel_errors(path)
             book = load_workbook(path)
-            for col in [1,2,3]:
-                self.assertEqual(book.active.cell(2,col).fill.patternType,'solid')
-            self.assertIsNone(book.active.cell(2,4).fill.patternType)
+            self.assertEqual(book.active.cell(2,1).fill.patternType,'solid')
+            for col in [2,3,4]:
+                self.assertIsNone(book.active.cell(2,col).fill.patternType)
+            self.assertEqual(book.active.cell(3,1).fill.patternType,'solid')
+            self.assertEqual(book.active.cell(3,2).fill.patternType,'solid')
+            self.assertIsNone(book.active.cell(3,3).fill.patternType)
+            self.assertEqual(book.active.cell(2,1).value,127692.10)
+            self.assertEqual(book.active.cell(2,2).value,8938.44)
+            self.assertEqual(book.active.cell(2,3).value,136630.40)
             book.close()
 
     def test_parse_missing_zero_currency_credit_and_invalid(self):
