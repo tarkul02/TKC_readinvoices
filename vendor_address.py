@@ -90,6 +90,23 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
                 or (len(buyer_key) >= 8 and buyer_key in re.sub(r'\W', '', text).casefold())):
             break
         marker = _BRANCH.search(text)
+        if prachinburi and marker:
+            before = _clean(text[:marker.start()]).rstrip(' ([,:;-')
+            after = text[marker.end():].strip(' ()[]:;,.')
+            # SANKO prints the office label AFTER the city/postcode. Keep
+            # that address evidence, while using the suffix only as a label.
+            if (before and not after and len(_postcodes(before)) == 1
+                    and (starts_address(before) or _ADDRESS_WORD.search(before))):
+                code = marker.group(1).zfill(5) if marker.group(1) else '00000'
+                for chunk in reversed(chunks):
+                    if chunk['branch'] is not None:
+                        break
+                    chunk['branch'] = code
+                pending_branch = code
+                if current is not None and current['branch'] != code:
+                    current = None
+                text = before
+                marker = None
         if marker:
             code = marker.group(1).zfill(5) if marker.group(1) else '00000'
             tail = _clean(text[marker.end():])

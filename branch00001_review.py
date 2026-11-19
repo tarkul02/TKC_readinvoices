@@ -8,7 +8,7 @@ import re
 from vendor_address import select_vendor_address, _postcodes, _house, _clean, _BUYER as _ADDRESS_BUYER
 
 _COPY = re.compile(r'^(?:FOR\s+CUSTOMER|สำหรับลูกค้า)\s*$', re.I)
-_BUYER = re.compile(r'รหัสลูกค้า|นามลูกค้า', re.I)
+_BUYER = re.compile(r'รหัสลูกค้า|นามลูกค้า|^\s*CLIENT\s*[/：:]?\s*ADDRESS\b', re.I)
 
 
 def is_copy_caption(text):
