@@ -46,7 +46,7 @@ def _starts_address(value):
                 and not _META.search(value))
 
 
-def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=(), buyer_name=''):
+def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=(), buyer_name='', prachinburi=False):
     """Return (address, selected/unchanged/unresolved).
 
     Read the seller header up to the first buyer marker. Labels may precede or
@@ -102,6 +102,15 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
                 and re.search(r"บริษัท.*จำกัด|\b(?:CO\.?\s*,?\s*LTD\.?|COMPANY\s+LIMITED|PUBLIC\s+COMPANY\s+LIMITED)\b", text, re.I)):
             current = None
             continue
+        if prachinburi and re.fullmatch(r'[0-9]{5}\s+(?:THAILAND\.?)', text, re.I):
+            unfinished = [chunk for chunk in chunks
+                          if chunk['branch'] == pending_branch
+                          and not _postcodes(chunk['text'])
+                          and not re.search(r'[ก-๙]', chunk['text'])]
+            if len(unfinished) == 1:
+                unfinished[0]['text'] += ' ' + text
+                current = unfinished[0]
+                continue
         if _starts_address(text):
             current = {'branch': pending_branch, 'text': text}
             chunks.append(current)

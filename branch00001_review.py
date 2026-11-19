@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from vendor_address import select_vendor_address, _postcodes
+from vendor_address import select_vendor_address, _postcodes, _house, _clean, _BRANCH, _BUYER as _ADDRESS_BUYER, _starts_address
 
 _COPY = re.compile(r'^(?:FOR\s+CUSTOMER|สำหรับลูกค้า)\s*$', re.I)
 _BUYER = re.compile(r'รหัสลูกค้า|นามลูกค้า', re.I)
@@ -31,16 +31,94 @@ def seller_lines(lines):
     return result
 
 
-def select_address(raw, vendor_branch, lines, **kwargs):
-    """Trust a unique complete issuing address over a wrong Azure office hint."""
-    lines = seller_lines(lines)
-    result = select_vendor_address(raw, vendor_branch, lines, **kwargs)
-    if result[1] != 'unresolved' or not vendor_branch:
+def _local_header(pdf_path):
+    binary = shutil.which('tesseract')
+    if not binary or not pdf_path:
+        return ''
+    try:
+        import fitz
+        with fitz.open(str(pdf_path)) as doc, tempfile.TemporaryDirectory() as temp:
+            rect = doc[0].rect
+            clip = fitz.Rect(0, 0, rect.width, rect.height*.17)
+            path = Path(temp)/'header.png'
+            doc[0].get_pixmap(matrix=fitz.Matrix(4,4), clip=clip).save(str(path))
+            result = subprocess.run([binary,str(path),'stdout','--psm','6'],
+                                    capture_output=True,text=True,timeout=15,check=False)
+            return result.stdout if result.returncode == 0 else ''
+    except (ImportError,OSError,ValueError,IndexError,RuntimeError,subprocess.TimeoutExpired):
+        return ''
+
+
+def select_address(raw, vendor_branch, lines, *, supplier_name='', pdf_path=None, **kwargs):
+    """Accept only seller OCR evidence; Azure raw alone cannot cross buyer bounds."""
+    original = list(lines)
+    header = seller_lines(original)
+    # Also retain the original buyer/tax/name boundary for independent evidence.
+    safe = []
+    buyer_key = re.sub(r'\W', '', kwargs.get('buyer_name','')).casefold()
+    for text in header:
+        digits = re.sub(r'\D','',text)
+        if (_ADDRESS_BUYER.search(text)
+                or any(str(t) and str(t) in digits for t in kwargs.get('buyer_tax_ids',()))
+                or (len(buyer_key) >= 8 and buyer_key in re.sub(r'\W','',text).casefold())):
+            break
+        safe.append(text)
+    options = dict(kwargs, prachinburi=True)
+    result = select_vendor_address('', vendor_branch, safe, **options)
+    if result[1] == 'selected' and len(_postcodes(result[0])) == 1:
         return result
-    candidate, status = select_vendor_address('', vendor_branch, lines, **kwargs)
-    if status == 'selected' and len(_postcodes(candidate)) == 1:
-        return candidate, status
-    return result
+    if not vendor_branch:
+        return '', 'unresolved'
+
+    # A bilingual house-number conflict must be resolved by an independent
+    # image read, never by preferring Thai, English, the first or the largest.
+    houses = set()
+    for text in safe:
+        marker = _BRANCH.search(text)
+        tail = text[marker.end():] if marker else text
+        house = _house(_clean(tail))
+        if house and _starts_address(_clean(tail)):
+            houses.add(house)
+    if len(houses) > 1:
+        local = _local_header(pdf_path)
+        confirmed = {h for h in houses if re.search(r'(?<![0-9/])'+re.escape(h)+r'(?![0-9/])',local)}
+        if len(confirmed) == 1:
+            winner = next(iter(confirmed))
+            filtered = []
+            for text in safe:
+                marker = _BRANCH.search(text)
+                house = _house(_clean(text[marker.end():] if marker else text))
+                if house and house != winner:
+                    continue
+                filtered.append(text)
+            address,status = select_vendor_address('',vendor_branch,filtered,**options)
+            if status == 'selected' and len(_postcodes(address)) == 1:
+                return address,status
+
+    # Some suppliers print their sole address in the footer. Require an exact
+    # seller company name also present in the header, a complete address and
+    # head-office issuing branch; never scan arbitrary buyer/body addresses.
+    if vendor_branch == '00000':
+        names = re.findall(r'บริษัท.*?จำกัด(?:\s*\(มหาชน\))?',supplier_name)
+        normalize = lambda value:re.sub(r'\W','',value).casefold()
+        names = {normalize(name) for name in names}
+        header_text = normalize(' '.join(safe))
+        candidates = set()
+        for text in original[-12:]:
+            match = re.search(r'(บริษัท.*?จำกัด(?:\s*\(มหาชน\))?)\s+(.+)',str(text))
+            if not match:
+                continue
+            name = normalize(match.group(1))
+            address = _clean(match.group(2))
+            if (name in names and name in header_text and _house(address)
+                    and len(_postcodes(address)) == 1
+                    and re.search(r'จังหวัด|จ\.|PROVINCE',address,re.I)
+                    and not any(str(t) and str(t) in re.sub(r'\D','',text)
+                                for t in kwargs.get('buyer_tax_ids',()))):
+                candidates.add(address)
+        if len(candidates) == 1:
+            return next(iter(candidates)), 'selected'
+    return '', 'unresolved'
 
 
 def _bounds(obj):
@@ -149,3 +227,38 @@ def reread_po(pdf_path, invoices, patterns):
         return next(iter(matches)) if len(matches) == 1 else ''
     except (ImportError, OSError, ValueError, IndexError, RuntimeError, subprocess.TimeoutExpired):
         return ''
+
+
+def reread_buyer_tax_id(pdf_path, invoices, current, known_ids):
+    """Correct an existing buyer ID only when an independent crop reads a
+    known ID one digit away. No changes based on the branch or VAT arithmetic.
+    """
+    current = re.sub(r'\D','',str(current or ''))
+    targets = {str(t) for t in known_ids if len(str(t)) == 13
+               and len(current) == 13 and sum(a != b for a,b in zip(current,str(t))) == 1}
+    binary = shutil.which('tesseract')
+    if not targets or not binary or not pdf_path:
+        return current
+    try:
+        import fitz
+        verified = set()
+        with fitz.open(str(pdf_path)) as doc, tempfile.TemporaryDirectory() as temp:
+            for pi,page in enumerate(getattr(invoices,'pages',()) or ()):
+                for line in getattr(page,'lines',()) or ():
+                    text = str(getattr(line,'content','') or '')
+                    if current not in re.sub(r'\D','',text):
+                        continue
+                    b = _bounds(line)
+                    if not b:
+                        continue
+                    sx = doc[pi].rect.width / float(getattr(page,'width',0) or doc[pi].rect.width/72)
+                    sy = doc[pi].rect.height / float(getattr(page,'height',0) or doc[pi].rect.height/72)
+                    clip = fitz.Rect(b[0]*sx-2,b[1]*sy-3,b[2]*sx+4,b[3]*sy+3) & doc[pi].rect
+                    path = Path(temp)/'buyer-id.png'
+                    doc[pi].get_pixmap(matrix=fitz.Matrix(4,4),clip=clip).save(str(path))
+                    result = subprocess.run([binary,str(path),'stdout','--psm','6'],capture_output=True,text=True,timeout=15,check=False)
+                    if result.returncode == 0:
+                        verified.update(targets.intersection(re.findall(r'(?<!\d)\d{13}(?!\d)',result.stdout)))
+        return next(iter(verified)) if len(verified) == 1 else current
+    except (ImportError,OSError,ValueError,IndexError,RuntimeError,subprocess.TimeoutExpired):
+        return current

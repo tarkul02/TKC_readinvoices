@@ -209,6 +209,51 @@ def _otj_summary(row, lines, page):
     return True
 
 
+def _focus_summary(lines, page):
+    """FOCUS summary captions define the roles even when Azure swaps fields."""
+    if _CREDIT.search('\n'.join(lines)):
+        return False
+    evidence = {f:set() for f in FIELDS}
+    repairs = set()
+    for i, text in enumerate(lines):
+        field = next((f for f, pattern in (
+            ('TotalAmount', r'รวมราคาทั้งสิ้น'),
+            ('VATAmount', r'ภาษีมูลค่าเพิ่ม'),
+            ('AmountIncVat', r'รวมเงินทั้งสิ้น'),
+        ) if re.search(pattern, text)), None)
+        if not field:
+            continue
+        for following in lines[i+1:i+3]:
+            token = following.strip()
+            if re.fullmatch(r'\d{1,3}(?:\.\d{3})+,\d{2}', token):
+                token = token.replace('.', '').replace(',', '.')
+            value = parse_amount(token)
+            if value is None:
+                break
+            evidence[field].add(value)
+            if field == 'AmountIncVat':
+                digits = format(value, '.2f')
+                for n, c in enumerate(digits.split('.')[0]):
+                    if c.isdigit():
+                        v = parse_amount(digits[:n]+digits[n+1:])
+                        if v is not None:
+                            repairs.add(v)
+            break
+    if any(len(evidence[f]) != 1 for f in FIELDS):
+        return False
+    base, tax, gross = (next(iter(evidence[f])) for f in FIELDS)
+    if base <= 0 or tax < 0 or gross <= 0:
+        return False
+    if abs(base+tax-gross) > TOLERANCE:
+        valid = {v for v in repairs if abs(base+tax-v) <= TOLERANCE}
+        if len(valid) != 1:
+            return False
+        gross = next(iter(valid))
+    for field, value in zip(FIELDS, (base,tax,gross)):
+        page['candidates'][field][value] = 6
+    return True
+
+
 def reconcile_branch_amounts(row, branch, lines=(), tables=()):
     """Add corroborated evidence only for the caller's branch 00001."""
     if branch != '00001':
@@ -234,6 +279,9 @@ def reconcile_branch_amounts(row, branch, lines=(), tables=()):
                 for field, value in zip(FIELDS, next(iter(coherent))):
                     page['candidates'][field][value] = 6
                 profile = '00001_scmp_summary'
+
+    elif vendor == '0105522000600' and _focus_summary(lines, page):
+        profile = '00001_focus_summary'
 
     elif vendor == _OTJ_TAX_ID and _otj_summary(row, lines, page):
         profile = '00001_otj_summary'
