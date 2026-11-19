@@ -20,7 +20,8 @@ from dateutil import parser
 from po_patterns import load_po_patterns, is_po_value
 from vendor_address import select_vendor_address
 from supplier_name import remove_supplier_logo_fragments
-from invoice_amounts import parse_amount, reconcile_page_amounts, resolve_amounts, merge_amounts
+from invoice_amounts import parse_amount, resolve_amounts, merge_amounts
+from branch00001_amounts import reconcile_branch_amounts
 
 # ====================================================
 # 🔐 ตั้งค่า
@@ -3766,9 +3767,23 @@ for input_pdf in pdf_list:
 
             # Reconcile document-level amount evidence from this one page.
             # No fixed VAT rate, largest-VAT selection or magnitude sorting.
-            reconcile_page_amounts(
-                invoice_data, ocr_cache["lines"], getattr(invoices, "tables", ()),
+            reconcile_branch_amounts(
+                invoice_data, branch_email,
+                ocr_cache["lines"], getattr(invoices, "tables", ()),
             )
+            if branch_email == "00001":
+                amount_page = invoice_data["_amount_pages"][0]
+                if amount_page.get("profile"):
+                    vendor_branch_debug(
+                        "BRANCH00001_AMOUNT_PROFILE",
+                        pdf_path=str(pdf_path),
+                        invoice_no=invoice_data.get("TaxInvoiceNo", ""),
+                        profile=amount_page["profile"],
+                        before=amount_page["raw"],
+                        after={field: invoice_data.get(field) for field in
+                               ("TotalAmount", "VATAmount", "AmountIncVat")},
+                        emessage=invoice_data.get("Emessage", ""),
+                    )
 
             if not invoice_data.get("VendorTaxId"):
                 invoice_data["VendorTaxId"] = extract_tax_id_from_pages(invoices, ocr_cache)
