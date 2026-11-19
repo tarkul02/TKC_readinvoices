@@ -134,6 +134,81 @@ def _summary_evidence(lines, tables):
     return evidence
 
 
+_OTJ_TAX_ID = '0105536017607'
+_OTJ_MONEY = re.compile(r'(?<![\d.,-])(?:\d{1,3}(?:[, .-]\d{3})+|\d+)\.\d{2}(?![\d.])')
+
+
+def _otj_summary(row, lines, page):
+    """Recover a unique OTJ summary bundle, never an item or a VAT-rate guess.
+
+    Allow only damaged thousands separators or one inserted tax digit, with
+    the other two printed summary amounts independently corroborating it.
+    """
+    if _CREDIT.search('\n'.join(lines)):
+        return False
+    starts = [i for i, text in enumerate(lines)
+              if re.search(r'SUB\s*TOTAL\s+BEFORE\s+TAX', text, re.I)]
+    if not starts:
+        return False
+    raw = [parse_amount(row.get(field)) for field in FIELDS]
+    if all(v is not None for v in raw) and abs(raw[0]+raw[1]-raw[2]) <= TOLERANCE:
+        return False
+    summary = lines[max(0, starts[-1]-1):]
+    # Stop before signatures and other footer values.
+    end = next((i for i, text in enumerate(summary)
+                if re.search(r'DELIVERED\s+BY|RECEIVED\s+BY|ผู้รับของ', text, re.I)), len(summary))
+    summary = summary[:end]
+    values = set()
+    tax_tokens = set()
+    tax_seen = False
+    for text in summary:
+        if re.search(r'V[AÄ]T', text, re.I):
+            tax_seen = True
+        if re.search(r'AFTER|รวมมูลค่าสินค้า.*รวมภาษี', text, re.I):
+            tax_seen = False
+        for match in _OTJ_MONEY.finditer(text):
+            token = match.group()
+            # Only a complete monetary line or a recognized summary caption.
+            if not (text.strip() == token or re.search(r'SUB\s*TOTAL|V[AÄ]T|AFTER|รวมมูลค่า', text, re.I)):
+                continue
+            normalized = re.sub(r'[, .-](?=\d{3}(?:[, .-]|\.\d{2}$))', '', token)
+            value = parse_amount(normalized)
+            if value is not None:
+                values.add(value)
+                if tax_seen:
+                    tax_tokens.add(value)
+    base = parse_amount(row.get('TotalAmount'))
+    if base is None or base <= 0 or base not in values:
+        return False
+    gross_raw = parse_amount(row.get('AmountIncVat'))
+    tax_raw = parse_amount(row.get('VATAmount'))
+    if (gross_raw is not None and gross_raw <= 0) or (tax_raw is not None and tax_raw < 0):
+        return False
+    coherent = set()
+    for gross in values:
+        tax = gross - base
+        if tax < 0 or gross <= base:
+            continue
+        if tax_raw in tax_tokens and abs(tax - tax_raw) <= TOLERANCE:
+            coherent.add((base, tax_raw, gross))
+        # A valid printed gross must match the existing Azure gross. Only
+        # remove a single inserted digit in the printed VAT token; never
+        # derive a new tax value merely because the arithmetic balances.
+        if gross_raw == gross:
+            for printed_tax in tax_tokens:
+                source = format(printed_tax, '.2f')
+                target = format(tax, '.2f')
+                if len(source) == len(target)+1 and any(
+                        source[:i]+source[i+1:] == target
+                        for i, char in enumerate(source) if char.isdigit()):
+                    coherent.add((base, tax, gross))
+    if len(coherent) != 1:
+        return False
+    for field, value in zip(FIELDS, next(iter(coherent))):
+        page['candidates'][field][value] = 6
+    return True
+
+
 def reconcile_branch_amounts(row, branch, lines=(), tables=()):
     """Add corroborated evidence only for the caller's branch 00001."""
     if branch != '00001':
@@ -159,6 +234,9 @@ def reconcile_branch_amounts(row, branch, lines=(), tables=()):
                 for field, value in zip(FIELDS, next(iter(coherent))):
                     page['candidates'][field][value] = 6
                 profile = '00001_scmp_summary'
+
+    elif vendor == _OTJ_TAX_ID and _otj_summary(row, lines, page):
+        profile = '00001_otj_summary'
 
     elif vendor == _PROSPACK_TAX_ID and not _CREDIT.search(text):
         base, tax, gross = (parse_amount(row.get(field)) for field in FIELDS)

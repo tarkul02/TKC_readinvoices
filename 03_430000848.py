@@ -22,6 +22,7 @@ from vendor_address import select_vendor_address
 from supplier_name import remove_supplier_logo_fragments
 from invoice_amounts import parse_amount, resolve_amounts, merge_amounts
 from branch00001_amounts import reconcile_branch_amounts
+from branch00001_review import is_copy_caption, select_address, marked_branch, reread_po
 
 # ====================================================
 # 🔐 ตั้งค่า
@@ -2503,7 +2504,7 @@ def vendor_branch_debug(event, **details):
         print(f'⚠️ VendorBranch debug logging failed: {exc}')
 
 def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None,
-                          vendor_tax_id="", supplier_name="", pdf_path=None):
+                          vendor_tax_id="", supplier_name="", pdf_path=None, buyer_branch=""):
     """Resolve the *seller's* issuing branch from ONE prebuilt-invoice response.
 
     A vendor's directory of offices is not proof of which office issued an invoice.
@@ -2555,6 +2556,9 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None,
     if not rows:
         vendor_branch_debug('NO_OCR_ROWS', pdf_path=str(pdf_path or ''))
         return ''
+
+    if buyer_branch == '00001':
+        rows = [row for row in rows if not is_copy_caption(row[1])]
 
     def buyer_tax(text):
         digits = clean_tax_id(text)
@@ -2799,10 +2803,16 @@ def extract_vendor_branch(invoices, layout_result=None, ocr_cache=None,
             if scored and (len(scored) == 1 or scored[1][0]-scored[0][0] > .22):
                 selected.append(scored[0][1])
 
+    if buyer_branch == '00001' and not selected:
+        result = marked_branch(pdf_path, pages, options)
+        if result:
+            selected.append(result)
+            vendor_branch_debug('00001_ALIGNED_CHECKBOX', pdf_path=str(pdf_path or ''), result=result)
+
     # Local PDF image fallback for prebuilt-invoice OCR without polygons.
     # Match a vertical column of real checkbox outlines to the ordered vendor
     # branch choices, then compare their INSIDE ink (not their printed borders).
-    if not selected and pdf_path and len({v for _, v, _, _ in options}) > 1:
+    if buyer_branch != '00001' and not selected and pdf_path and len({v for _, v, _, _ in options}) > 1:
         try:
             import cv2
             import numpy as np
@@ -3855,11 +3865,13 @@ for input_pdf in pdf_list:
                 ocr_cache=ocr_cache,
                 vendor_tax_id=invoice_data.get("VendorTaxId", ""),
                 supplier_name=invoice_data.get("SupplierName", ""),
-                pdf_path=pdf_path
+                pdf_path=pdf_path,
+                buyer_branch=Company_branch,
             )
 
             # Select the seller address only after its issuing branch is known.
-            selected_address, address_status = select_vendor_address(
+            address_selector = select_address if Company_branch == '00001' else select_vendor_address
+            selected_address, address_status = address_selector(
                 invoice_data.get("VendorAddress", ""),
                 invoice_data.get("VendorBranch", ""),
                 ocr_cache["lines"],
@@ -3974,6 +3986,11 @@ for input_pdf in pdf_list:
                 invoice_data.get("PurchaseOrderNo", ""),
                 ocr_cache
             )
+
+            if Company_branch == '00001' and not po_from_ocr:
+                po_from_ocr = reread_po(pdf_path, invoices, get_po_patterns_by_branch(Company_branch))
+                if po_from_ocr:
+                    vendor_branch_debug('00001_LOCAL_PO_REREAD', pdf_path=str(pdf_path), result=po_from_ocr)
 
             if po_from_ocr:
                 invoice_data["PurchaseOrderNo"] = po_from_ocr
