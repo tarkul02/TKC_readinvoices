@@ -254,6 +254,55 @@ def _focus_summary(lines, page):
     return True
 
 
+def _union_plastic_summary(lines, tables, page):
+    """Accept only a complete, uniquely labelled UNION PLASTIC summary."""
+    if _CREDIT.search('\n'.join(lines)):
+        return False
+    evidence = {field: set() for field in FIELDS}
+
+    def label(text):
+        for field, caption in (
+            ('TotalAmount', 'รวมราคาทั้งสิ้น'),
+            ('VATAmount', 'จำนวนภาษีมูลค่าเพิ่ม'),
+            ('AmountIncVat', 'จำนวนเงินรวมทั้งสิ้น'),
+        ):
+            match = re.match(r'^\s*' + caption + r'\s*[:：]?', text)
+            if match:
+                return field, text[match.end():]
+        return None, ''
+
+    for i, text in enumerate(lines):
+        field, tail = label(text)
+        if field is None:
+            continue
+        values = _values(tail)
+        if not values:
+            for following in lines[i+1:i+4]:
+                if label(following)[0] or not _number_line(following):
+                    break
+                values = _values(following)
+                if values:
+                    break
+        evidence[field].update(values)
+    for table in tables:
+        rows = {}
+        for cell in getattr(table, 'cells', ()) or ():
+            rows.setdefault(getattr(cell, 'row_index', 0), []).append(cell)
+        for cells in rows.values():
+            cells.sort(key=lambda cell: getattr(cell, 'column_index', 0))
+            field, tail = label(' '.join(str(getattr(cell, 'content', '') or '') for cell in cells))
+            if field:
+                evidence[field].update(_values(tail))
+    if any(len(evidence[field]) != 1 for field in FIELDS):
+        return False
+    base, tax, gross = (next(iter(evidence[field])) for field in FIELDS)
+    if base <= 0 or tax < 0 or gross <= 0 or abs(base + tax - gross) > TOLERANCE:
+        return False
+    for field, value in zip(FIELDS, (base, tax, gross)):
+        page['candidates'][field][value] = 6
+    return True
+
+
 def reconcile_branch_amounts(row, branch, lines=(), tables=()):
     """Add corroborated evidence only for the caller's branch 00001."""
     if branch != '00001':
@@ -279,6 +328,9 @@ def reconcile_branch_amounts(row, branch, lines=(), tables=()):
                 for field, value in zip(FIELDS, next(iter(coherent))):
                     page['candidates'][field][value] = 6
                 profile = '00001_scmp_summary'
+
+    elif vendor == '0107537000998' and _union_plastic_summary(lines, tables, page):
+        profile = '00001_union_plastic_summary'
 
     elif vendor == '0105522000600' and _focus_summary(lines, page):
         profile = '00001_focus_summary'
