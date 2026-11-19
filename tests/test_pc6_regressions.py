@@ -3,10 +3,9 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
 from branch00001_amounts import reconcile_branch_amounts
-from branch00001_review import select_address, reread_buyer_tax_id
+from branch00001_review import select_address
 from invoice_amounts import reconcile_page_amounts
 from vendor_address import select_vendor_address
 
@@ -42,18 +41,9 @@ class FocusTests(unittest.TestCase):
 
 
 class AddressTests(unittest.TestCase):
-    def test_conflicting_houses_need_independent_read(self):
+    def test_conflicting_houses_are_not_guessed(self):
         for p in ['19','23']:
-            with patch('branch00001_review._local_header',return_value='Head Office: 700/869 Moo 5 Chonburi 20160'):
-                address,status=select_address('','00000',OCR[p],pdf_path='sample.pdf')
-            self.assertEqual(status,'selected')
-            self.assertIn('700/869',address)
-            self.assertNotIn('700/369',address)
-
-    def test_unconfirmed_or_ambiguous_house_is_not_guessed(self):
-        for independent in ['', '700/369 700/869']:
-            with patch('branch00001_review._local_header',return_value=independent):
-                self.assertEqual(select_address('','00000',OCR['19']),('','unresolved'))
+            self.assertEqual(select_address('','00000',OCR[p]),('','unresolved'))
 
     def test_footer_address_and_no_buyer_leak(self):
         name='บริษัท บางกอกพัฒนามอเตอร์ จำกัด Bangkok Metropolis Motor Co., Ltd'
@@ -78,9 +68,5 @@ class AddressTests(unittest.TestCase):
         self.assertIn('24140 Thailand.',address)
         self.assertNotIn('555',address)
         self.assertEqual(select_vendor_address('','00000',OCR['29']),('','unresolved'))
-
-    def test_tax_id_not_corrected_without_independent_evidence(self):
-        with patch('branch00001_review.shutil.which',return_value=None):
-            self.assertEqual(reread_buyer_tax_id('missing.pdf',None,'0105529030055',['0105529030059']),'0105529030055')
 
 if __name__=='__main__':unittest.main()

@@ -1,15 +1,11 @@
 """Conservative OCR fallbacks called only for buyer branch 00001.
 
 Never substitute a PO prefix or infer a seller branch from the buyer branch.
-Optional local image/OCR tools failing leaves the existing review result intact.
+Optional local image tools failing leaves the existing review result intact.
 """
 import re
-import shutil
-import subprocess
-import tempfile
-from pathlib import Path
 
-from vendor_address import select_vendor_address, _postcodes, _house, _clean, _BRANCH, _BUYER as _ADDRESS_BUYER, _starts_address
+from vendor_address import select_vendor_address, _postcodes, _house, _clean, _BUYER as _ADDRESS_BUYER
 
 _COPY = re.compile(r'^(?:FOR\s+CUSTOMER|สำหรับลูกค้า)\s*$', re.I)
 _BUYER = re.compile(r'รหัสลูกค้า|นามลูกค้า', re.I)
@@ -31,25 +27,7 @@ def seller_lines(lines):
     return result
 
 
-def _local_header(pdf_path):
-    binary = shutil.which('tesseract')
-    if not binary or not pdf_path:
-        return ''
-    try:
-        import fitz
-        with fitz.open(str(pdf_path)) as doc, tempfile.TemporaryDirectory() as temp:
-            rect = doc[0].rect
-            clip = fitz.Rect(0, 0, rect.width, rect.height*.17)
-            path = Path(temp)/'header.png'
-            doc[0].get_pixmap(matrix=fitz.Matrix(4,4), clip=clip).save(str(path))
-            result = subprocess.run([binary,str(path),'stdout','--psm','6'],
-                                    capture_output=True,text=True,timeout=15,check=False)
-            return result.stdout if result.returncode == 0 else ''
-    except (ImportError,OSError,ValueError,IndexError,RuntimeError,subprocess.TimeoutExpired):
-        return ''
-
-
-def select_address(raw, vendor_branch, lines, *, supplier_name='', pdf_path=None, **kwargs):
+def select_address(raw, vendor_branch, lines, *, supplier_name='', **kwargs):
     """Accept only seller OCR evidence; Azure raw alone cannot cross buyer bounds."""
     original = list(lines)
     header = seller_lines(original)
@@ -69,31 +47,6 @@ def select_address(raw, vendor_branch, lines, *, supplier_name='', pdf_path=None
         return result
     if not vendor_branch:
         return '', 'unresolved'
-
-    # A bilingual house-number conflict must be resolved by an independent
-    # image read, never by preferring Thai, English, the first or the largest.
-    houses = set()
-    for text in safe:
-        marker = _BRANCH.search(text)
-        tail = text[marker.end():] if marker else text
-        house = _house(_clean(tail))
-        if house and _starts_address(_clean(tail)):
-            houses.add(house)
-    if len(houses) > 1:
-        local = _local_header(pdf_path)
-        confirmed = {h for h in houses if re.search(r'(?<![0-9/])'+re.escape(h)+r'(?![0-9/])',local)}
-        if len(confirmed) == 1:
-            winner = next(iter(confirmed))
-            filtered = []
-            for text in safe:
-                marker = _BRANCH.search(text)
-                house = _house(_clean(text[marker.end():] if marker else text))
-                if house and house != winner:
-                    continue
-                filtered.append(text)
-            address,status = select_vendor_address('',vendor_branch,filtered,**options)
-            if status == 'selected' and len(_postcodes(address)) == 1:
-                return address,status
 
     # Some suppliers print their sole address in the footer. Require an exact
     # seller company name also present in the header, a complete address and
@@ -185,80 +138,3 @@ def marked_branch(pdf_path, pages, options):
         return next(iter(winners)) if len(winners) == 1 else ''
     except (ImportError, OSError, ValueError, IndexError, RuntimeError):
         return ''
-
-
-def reread_po(pdf_path, invoices, patterns):
-    """Re-OCR only an invalid labelled PO. Accept one configured value that
-    differs by exactly one digit; no synthetic prefix replacement is allowed.
-    Tesseract is optional and all processing is local.
-    """
-    binary = shutil.which('tesseract')
-    if not binary or not pdf_path:
-        return ''
-    try:
-        import fitz
-        matches = set()
-        with fitz.open(str(pdf_path)) as doc, tempfile.TemporaryDirectory() as temp:
-            for pi, page in enumerate(getattr(invoices, 'pages', ()) or ()):
-                for line in getattr(page, 'lines', ()) or ():
-                    text = str(getattr(line, 'content', '') or '')
-                    labelled = re.search(r'\bP\.?\s*O\.?\s*(?:NO\.?)?\s*[:：-]?\s*(\d{10})\b', text, re.I)
-                    if not labelled:
-                        continue
-                    original = labelled.group(1)
-                    if any(re.fullmatch(p, original) for p in patterns):
-                        continue
-                    b = _bounds(line)
-                    if not b:
-                        continue
-                    sx = doc[pi].rect.width / float(getattr(page, 'width', 0) or doc[pi].rect.width/72)
-                    sy = doc[pi].rect.height / float(getattr(page, 'height', 0) or doc[pi].rect.height/72)
-                    clip = fitz.Rect(b[0]*sx-2, b[1]*sy-4, b[2]*sx+4, b[3]*sy+4) & doc[pi].rect
-                    path = Path(temp)/'po.png'
-                    doc[pi].get_pixmap(matrix=fitz.Matrix(4,4), clip=clip).save(str(path))
-                    result = subprocess.run([binary, str(path), 'stdout', '--psm', '6'],
-                                            capture_output=True, text=True, timeout=15, check=False)
-                    if result.returncode:
-                        continue
-                    for candidate in re.findall(r'(?<!\d)\d{10}(?!\d)', result.stdout):
-                        if (sum(a != b for a,b in zip(original,candidate)) == 1
-                                and any(re.fullmatch(p, candidate) for p in patterns)):
-                            matches.add(candidate)
-        return next(iter(matches)) if len(matches) == 1 else ''
-    except (ImportError, OSError, ValueError, IndexError, RuntimeError, subprocess.TimeoutExpired):
-        return ''
-
-
-def reread_buyer_tax_id(pdf_path, invoices, current, known_ids):
-    """Correct an existing buyer ID only when an independent crop reads a
-    known ID one digit away. No changes based on the branch or VAT arithmetic.
-    """
-    current = re.sub(r'\D','',str(current or ''))
-    targets = {str(t) for t in known_ids if len(str(t)) == 13
-               and len(current) == 13 and sum(a != b for a,b in zip(current,str(t))) == 1}
-    binary = shutil.which('tesseract')
-    if not targets or not binary or not pdf_path:
-        return current
-    try:
-        import fitz
-        verified = set()
-        with fitz.open(str(pdf_path)) as doc, tempfile.TemporaryDirectory() as temp:
-            for pi,page in enumerate(getattr(invoices,'pages',()) or ()):
-                for line in getattr(page,'lines',()) or ():
-                    text = str(getattr(line,'content','') or '')
-                    if current not in re.sub(r'\D','',text):
-                        continue
-                    b = _bounds(line)
-                    if not b:
-                        continue
-                    sx = doc[pi].rect.width / float(getattr(page,'width',0) or doc[pi].rect.width/72)
-                    sy = doc[pi].rect.height / float(getattr(page,'height',0) or doc[pi].rect.height/72)
-                    clip = fitz.Rect(b[0]*sx-2,b[1]*sy-3,b[2]*sx+4,b[3]*sy+3) & doc[pi].rect
-                    path = Path(temp)/'buyer-id.png'
-                    doc[pi].get_pixmap(matrix=fitz.Matrix(4,4),clip=clip).save(str(path))
-                    result = subprocess.run([binary,str(path),'stdout','--psm','6'],capture_output=True,text=True,timeout=15,check=False)
-                    if result.returncode == 0:
-                        verified.update(targets.intersection(re.findall(r'(?<!\d)\d{13}(?!\d)',result.stdout)))
-        return next(iter(verified)) if len(verified) == 1 else current
-    except (ImportError,OSError,ValueError,IndexError,RuntimeError,subprocess.TimeoutExpired):
-        return current

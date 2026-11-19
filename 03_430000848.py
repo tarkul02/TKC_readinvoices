@@ -22,7 +22,7 @@ from vendor_address import select_vendor_address
 from supplier_name import remove_supplier_logo_fragments
 from invoice_amounts import parse_amount, resolve_amounts, merge_amounts
 from branch00001_amounts import reconcile_branch_amounts
-from branch00001_review import is_copy_caption, select_address, marked_branch, reread_po, reread_buyer_tax_id
+from branch00001_review import is_copy_caption, select_address, marked_branch
 
 # ====================================================
 # 🔐 ตั้งค่า
@@ -3761,9 +3761,7 @@ for input_pdf in pdf_list:
 
             Company_branch = normalize_internal_company_branch(branch_email)
             invoice_data["CompanyBranch"] = company_branch_to_display(Company_branch)
-            if Company_branch == '00001':
-                invoice_data['CompanyTaxID'] = reread_buyer_tax_id(
-                    pdf_path, invoices, invoice_data.get('CompanyTaxID', ''), EXCLUDE_TAX_IDS)
+
 
             print(f"🏢 CompanyName            : {invoice_data.get('CompanyName', '')}")
             print(f"🆔 CompanyTaxID           : {invoice_data.get('CompanyTaxID', '')}")
@@ -3874,8 +3872,8 @@ for input_pdf in pdf_list:
 
             # Select the seller address only after its issuing branch is known.
             address_selector = select_address if Company_branch == '00001' else select_vendor_address
-            address_options = ({'supplier_name': invoice_data.get('SupplierName', ''),
-                                'pdf_path': pdf_path} if Company_branch == '00001' else {})
+            address_options = ({'supplier_name': invoice_data.get('SupplierName', '')}
+                               if Company_branch == '00001' else {})
             selected_address, address_status = address_selector(
                 invoice_data.get("VendorAddress", ""),
                 invoice_data.get("VendorBranch", ""),
@@ -3992,11 +3990,6 @@ for input_pdf in pdf_list:
                 invoice_data.get("PurchaseOrderNo", ""),
                 ocr_cache
             )
-
-            if Company_branch == '00001' and not po_from_ocr:
-                po_from_ocr = reread_po(pdf_path, invoices, get_po_patterns_by_branch(Company_branch))
-                if po_from_ocr:
-                    vendor_branch_debug('00001_LOCAL_PO_REREAD', pdf_path=str(pdf_path), result=po_from_ocr)
 
             if po_from_ocr:
                 invoice_data["PurchaseOrderNo"] = po_from_ocr

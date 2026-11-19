@@ -54,6 +54,26 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
     postcode and branch. Missing raw Azure content is not permission to read the
     buyer block. No vendor names or addresses are hardcoded.
     """
+    def read_house(value):
+        original = _house(value)
+        if original or not prachinburi:
+            return original
+        # An industrial-estate name may precede the physical house number.
+        estate = re.match(r'^([A-Z][A-Z .&-]{0,80}?\bINDUSTRIAL\s+ESTATE)\s+(\d+(?:[-/]\d+)*)\s+(?=MOO\b)', value, re.I)
+        return estate.group(2) if estate else ''
+
+    def is_meta(value):
+        match = _META.search(value)
+        if prachinburi and match and _house(value) and _postcodes(value):
+            # A range such as 88/8-88/12 is not a date. Only exempt an
+            # address with explicit location words and a complete postcode.
+            if re.match(r'^\d+(?:[-/]\d+){3,}\s', value) and (_ADDRESS_WORD.search(value) or re.search(r'(?:^|\s)(?:ม|ต|อ|จ)\.', value)):
+                return False
+        return bool(match)
+
+    def starts_address(value):
+        return bool(read_house(value) and re.search(r'[A-Zก-๙]',value,re.I) and not is_meta(value))
+
     raw = re.sub(r"\s+", " ", str(raw_address or '')).strip()
     branch = str(vendor_branch or '').strip()
     chunks = []
@@ -73,7 +93,7 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
         if marker:
             code = marker.group(1).zfill(5) if marker.group(1) else '00000'
             tail = _clean(text[marker.end():])
-            if not _starts_address(tail):
+            if not starts_address(tail):
                 # A branch label below an address (OTJ/POLYNET) qualifies
                 # preceding unlabelled chunks, not a later buyer address.
                 for chunk in reversed(chunks):
@@ -93,12 +113,12 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
             text = tail
         else:
             text = _clean(text)
-        if not text or _META.search(text):
+        if not text or is_meta(text):
             continue
         # A company-name line may contain address words such as THAILAND.
         # It is not an address continuation; preserve unfinished chunks for
         # later city lines while excluding the company name itself.
-        if (not _starts_address(text)
+        if (not starts_address(text)
                 and re.search(r"บริษัท.*จำกัด|\b(?:CO\.?\s*,?\s*LTD\.?|COMPANY\s+LIMITED|PUBLIC\s+COMPANY\s+LIMITED)\b", text, re.I)):
             current = None
             continue
@@ -111,7 +131,7 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
                 unfinished[0]['text'] += ' ' + text
                 current = unfinished[0]
                 continue
-        if _starts_address(text):
+        if starts_address(text):
             current = {'branch': pending_branch, 'text': text}
             chunks.append(current)
         elif (_ADDRESS_WORD.search(text) or _postcodes(text)
@@ -134,7 +154,7 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
     candidates = []
     for chunk in chunks:
         address = chunk['text']
-        house = _house(address)
+        house = read_house(address)
         codes = _postcodes(address)
         if len(codes) > 1:
             continue

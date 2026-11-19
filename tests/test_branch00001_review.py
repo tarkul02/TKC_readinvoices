@@ -7,12 +7,10 @@ import re
 import tempfile
 from types import SimpleNamespace as Obj
 import unittest
-from unittest.mock import patch
 
 from branch00001_amounts import reconcile_branch_amounts
-from branch00001_review import is_copy_caption, seller_lines, select_address, marked_branch, reread_po
+from branch00001_review import is_copy_caption, seller_lines, select_address, marked_branch
 from invoice_amounts import reconcile_page_amounts
-from po_patterns import load_po_patterns
 
 ROOT = Path(__file__).resolve().parents[1]
 OCR = json.loads((ROOT/'tests/fixtures/pc5_ocr_excerpts.json').read_text())
@@ -149,21 +147,5 @@ class LocalImageRegressions(unittest.TestCase):
         pages,options=self.make_pdf(tick=1)
         for mark in pages[0].selection_marks:mark.polygon=[v+200 for v in mark.polygon]
         self.assertEqual(marked_branch(self.path,pages,options),'')
-
-    def test_po_needs_independent_ocr_and_configured_value(self):
-        import fitz
-        doc=fitz.open();doc.new_page();doc.save(self.path);doc.close()
-        invoices=Obj(pages=[Obj(width=595,height=842,lines=[Obj(content='PO No. : 4800037917',polygon=[10,10,150,10,150,25,10,25])])])
-        patterns=load_po_patterns()['00001']
-        with patch('branch00001_review.shutil.which',return_value='/usr/bin/tesseract'):
-            for read,expected in [('PO No. : 4300037917','4300037917'),('4800037917',''),
-                                  ('4300037999',''),('4300037917 4400037917','')]:
-                with patch('branch00001_review.subprocess.run',return_value=Obj(returncode=0,stdout=read)):
-                    self.assertEqual(reread_po(self.path,invoices,patterns),expected)
-
-    def test_no_optional_ocr_executable_returns_empty(self):
-        with patch('branch00001_review.shutil.which',return_value=None):
-            self.assertEqual(reread_po('missing.pdf',None,[]),'')
-
 
 if __name__=='__main__':unittest.main()
