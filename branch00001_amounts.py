@@ -3,6 +3,7 @@
 Branch 00000 and unknown layouts use the original reconciler unchanged.
 """
 from decimal import Decimal
+from itertools import product
 import re
 
 from invoice_amounts import (
@@ -146,12 +147,16 @@ def reconcile_branch_amounts(row, branch, lines=(), tables=()):
 
     if vendor == _SCMP_TAX_ID:
         evidence = _summary_evidence(lines, tables)
-        # Require all three explicitly labelled amounts and unique values.
-        # Do not infer base = gross - tax merely from a 7% assumption.
-        if all(len(evidence[field]) == 1 for field in FIELDS):
-            base, tax, gross = (next(iter(evidence[field])) for field in FIELDS)
-            if abs(base + tax - gross) <= TOLERANCE:
-                for field, value in zip(FIELDS,(base,tax,gross)):
+        # OCR can attach a check mark as a stray number: "1 16,589.28".
+        # Require one coherent triple across explicit summary evidence, not
+        # one number per field. Never infer a missing field or choose largest.
+        if all(0 < len(evidence[field]) <= 20 for field in FIELDS):
+            coherent = {
+                values for values in product(*(evidence[field] for field in FIELDS))
+                if abs(values[0] + values[1] - values[2]) <= TOLERANCE
+            }
+            if len(coherent) == 1:
+                for field, value in zip(FIELDS, next(iter(coherent))):
                     page['candidates'][field][value] = 6
                 profile = '00001_scmp_summary'
 

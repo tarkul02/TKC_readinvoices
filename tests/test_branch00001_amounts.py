@@ -39,6 +39,28 @@ class PrachinburiAmountTests(unittest.TestCase):
         resolve_amounts(row)
         self.assertEqual(row['TotalAmount'],16589.28)
 
+    def test_scmp_recorded_ocr_with_stray_one_before_subtotal(self):
+        lines=['AMOUNT','1','T22-AT07 105102',
+               'รวมเงิน/NET AMOUNT','1 16,589.28',
+               '(2) ใบเสร็จรับเงินฉบับนี้ จะสมบูรณ์ต่อเมื่อบริษัทฯ เรียกเก็บเงินจากธนาคารเรียบร้อยแล้ว',
+               'ภาษีมูลค่าเพิ่ม/VAT','7%','1,161.25',
+               '(หนึ่งหมื่นเจ็ดพันเจ็ดร้อยห้าสิบบาทห้าสิบสามสตางค์)',
+               'รวมเงินทั้งสิ้น/TOTAL AMOUNT','17,750.53']
+        row=record('0105528036509',1,1161.25,17750.53)
+        reconcile_branch_amounts(row,'00001',lines)
+        self.assertEqual(amounts(row),(16589.28,1161.25,17750.53))
+        self.assertEqual(row['Emessage'],'Original note')
+        # The same exact noisy OCR still follows the old path on 00000.
+        original=record('0105528036509',1,1161.25,17750.53)
+        self.assertEqual(reconcile_branch_amounts(deepcopy(original),'00000',lines),
+                         reconcile_page_amounts(deepcopy(original),lines))
+
+    def test_scmp_uses_equation_not_first_or_largest_number(self):
+        row=record('0105528036509',99999,1161.25,17750.53)
+        lines=['NET AMOUNT 99999.00 1 16589.28','VAT 7% 1161.25','TOTAL AMOUNT 17750.53']
+        reconcile_branch_amounts(row,'00001',lines)
+        self.assertEqual(row['TotalAmount'],16589.28)
+
     def test_scmp_table_rows_and_other_amounts_not_hardcoded(self):
         for base,tax,gross in [(3029.76,212.08,3241.84),(100,0,100),(-100,-7,-107)]:
             cells=[]
@@ -50,7 +72,7 @@ class PrachinburiAmountTests(unittest.TestCase):
             self.assertEqual(amounts(row),(base,tax,gross))
 
     def test_scmp_ambiguous_or_inconsistent_summary_is_not_guessed(self):
-        for lines in [SCMP_LINES+['NET AMOUNT 999.00'],
+        for lines in [SCMP_LINES+['NET AMOUNT 100.00','VAT 7% 7.00','TOTAL AMOUNT 107.00'],
                       ['NET AMOUNT 100','VAT 7% 7','TOTAL AMOUNT 120'],
                       ['NET AMOUNT 16589.28','TOTAL AMOUNT 17750.53']]:
             row=record('0105528036509',1,1161.25,17750.53)
