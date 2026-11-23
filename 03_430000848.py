@@ -1322,6 +1322,21 @@ def extract_company_name_by_taxid(invoices, company_tax_id="", ocr_cache=None):
 
     return ""
 
+def resolve_customer_tax_id(current, vendor_tax_id, invoices, ocr_cache=None, buyer_branch=""):
+    """Reject an Azure seller/buyer TaxID collision only on buyer 00001.
+
+    Use buyer-zone evidence rather than a hardcoded company ID; without
+    evidence the buyer ID stays empty for Matching to flag.
+    """
+    current = clean_tax_id(current)
+    vendor_tax_id = clean_tax_id(vendor_tax_id)
+    valid = bool(re.fullmatch(r"0\d{12}", current))
+    collision = buyer_branch == '00001' and current and current == vendor_tax_id
+    if valid and not collision:
+        return current
+    return extract_company_tax_id_from_pages(invoices, ocr_cache, vendor_tax_id)
+
+
 def extract_company_tax_id_from_pages(invoices, ocr_cache=None, vendor_tax_id=""):
     """
     OCR fallback สำหรับ CustomerTaxID โดยค้นเฉพาะ Customer zone
@@ -3210,7 +3225,7 @@ def check_copy_document(full_text):
     return bool(has_copy and not has_original)
 
 # 📌 Main Convert
-def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
+def extract_invoice_to_json(invoice, invoices, ocr_cache=None, buyer_branch=""):
 
     supplier_name = get_field_value(invoice.fields.get("VendorAddressRecipient"))
 
@@ -3273,19 +3288,11 @@ def extract_invoice_to_json(invoice, invoices, ocr_cache=None):
     # ==========================================================
     company_name = clean_company_name(company_name)
 
-    company_tax_id = clean_tax_id(
-        get_field_value(invoice.fields.get("CustomerTaxId"))
+    company_tax_id = resolve_customer_tax_id(
+        get_field_value(invoice.fields.get("CustomerTaxId")),
+        get_field_value(invoice.fields.get("VendorTaxId")),
+        invoices, ocr_cache, buyer_branch,
     )
-
-    if not re.fullmatch(r"0\d{12}", company_tax_id):
-        vendor_tax_id_for_customer = clean_tax_id(
-            get_field_value(invoice.fields.get("VendorTaxId"))
-        )
-        company_tax_id = extract_company_tax_id_from_pages(
-            invoices,
-            ocr_cache,
-            vendor_tax_id_for_customer,
-        )
 
     # ==========================================================
     # Customer / Company Name fallback by Customer Tax ID
@@ -3732,7 +3739,7 @@ for input_pdf in pdf_list:
 
         for idx, invoice in enumerate(invoices.documents):
 
-            invoice_data = extract_invoice_to_json(invoice, invoices, ocr_cache)
+            invoice_data = extract_invoice_to_json(invoice, invoices, ocr_cache, buyer_branch=branch_email)
 
             lines = ocr_cache["lines"]
             full_text = ocr_cache["full_text_upper"]
@@ -3942,7 +3949,7 @@ for input_pdf in pdf_list:
             invoice_data["VendorAddress"] = selected_address
             if address_status == 'conflicting':
                 invoice_data['Emessage'] = append_msg(
-                    invoice_data.get('Emessage', ''), 'ที่อยู่ไม่เหมือนกัน',
+                    invoice_data.get('Emessage', ''), 'The English and Thai addresses are not the same.',
                 )
             if address_status == "unresolved":
                 invoice_data["Emessage"] = append_msg(

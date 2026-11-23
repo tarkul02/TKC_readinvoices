@@ -679,7 +679,7 @@ def highlight_excel_errors(excel_path):
             cell.font = error_font
     
     error_field_map = {
-        "ที่อยู่ไม่เหมือนกัน": ["VendorAddress"],
+        "The English and Thai addresses are not the same.": ["VendorAddress"],
         "VendorAddress could not be resolved for VendorBranch": ["VendorAddress", "VendorBranch"],
         "PO does not match Company branch": ["PurchaseOrderNo", "Branch"],
         "Duplicate Amount Found": ["TotalAmount", "VATAmount", "AmountIncVat"],

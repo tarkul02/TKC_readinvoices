@@ -48,14 +48,14 @@ class ConflictTests(unittest.TestCase):
                    and ast.unparse(n.test)=="address_status == 'conflicting'")
         ns={'re':re,'address_status':'conflicting','invoice_data':{'Emessage':'Original warning'}}
         exec(compile(ast.Module(body=[append,block],type_ignores=[]),'conflict','exec'),ns)
-        self.assertEqual(ns['invoice_data']['Emessage'],'Original warning | ที่อยู่ไม่เหมือนกัน')
+        self.assertEqual(ns['invoice_data']['Emessage'],'Original warning | The English and Thai addresses are not the same.')
 
     def test_matching_keeps_warning_and_highlights_address_only(self):
         wb=Workbook();ws=wb.active
         ws.append(['VendorAddress','VendorBranch','Emessage'])
-        ws.append(['700/369 ... 700/869','00000','ที่อยู่ไม่เหมือนกัน'])
+        ws.append(['700/369 ... 700/869','00000','The English and Thai addresses are not the same.'])
         append_emessage(ws['C2'],[])
-        self.assertEqual(ws['C2'].value,'ที่อยู่ไม่เหมือนกัน')
+        self.assertEqual(ws['C2'].value,'The English and Thai addresses are not the same.')
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'matched.xlsx';wb.save(path);highlight_excel_errors(path)
             result=load_workbook(path)
