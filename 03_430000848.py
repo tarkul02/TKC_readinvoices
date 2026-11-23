@@ -1184,6 +1184,37 @@ def extract_company_name_from_pages(invoices, ocr_cache=None):
 
 
 
+def recover_labelled_buyer_name(current, buyer_branch, lines, supplier_name=""):
+    """Opt-in buyer-00001 fallback for a split Thai buyer-name caption.
+
+    Only the immediate company line after นามผู้ซื้อ is evidence. Do not
+    search the seller header or cross addresses/invoice/item captions.
+    """
+    if buyer_branch != '00001' or is_valid_customer_company_name(current):
+        return current
+    rows = [re.sub(r'\s+', ' ', str(line or '')).strip() for line in lines]
+    supplier_key = re.sub(r'\W', '', clean_company_name(supplier_name)).casefold()
+    candidates = set()
+    for i, text in enumerate(rows):
+        label = re.fullmatch(r'นามผู้ซื้อ\s*[:：]?\s*(.*)', text)
+        if not label:
+            continue
+        nearby = [label.group(1)] if label.group(1) else rows[i+1:i+4]
+        for value in nearby:
+            if not value or re.fullmatch(r'NAME\s*[:：]?', value, re.I):
+                continue
+            if re.fullmatch(
+                    r'บริษัท\s*.+?จำกัด(?:\s*\(\s*มหาชน\s*\))?'
+                    r'(?:\s*\(\s*สาขา(?:ที่)?\s*\d+\s*\))?', value):
+                name = clean_company_name(value)
+                key = re.sub(r'\W', '', name).casefold()
+                if is_valid_customer_company_name(name) and (not supplier_key or key not in supplier_key):
+                    candidates.add(name)
+            # A non-name line is a boundary, not permission to scan further.
+            break
+    return next(iter(candidates)) if len(candidates) == 1 else current
+
+
 def is_valid_customer_company_name(name):
     """ตรวจว่าชื่อ Customer ดูเป็นชื่อบริษัทที่สมบูรณ์ ไม่ใช่ OCR fragment เช่น THAI"""
     text = re.sub(r"\s+", " ", str(name or "")).strip()
@@ -3760,6 +3791,17 @@ for input_pdf in pdf_list:
             ).strip()
 
             Company_branch = normalize_internal_company_branch(branch_email)
+            previous_company_name = invoice_data.get('CompanyName', '')
+            invoice_data['CompanyName'] = recover_labelled_buyer_name(
+                previous_company_name, Company_branch, ocr_cache['lines'],
+                invoice_data.get('SupplierName', ''),
+            )
+            if invoice_data['CompanyName'] != previous_company_name:
+                vendor_branch_debug(
+                    'LABELLED_BUYER_NAME_RECOVERED', pdf_path=str(pdf_path),
+                    before=previous_company_name, after=invoice_data['CompanyName'],
+                    buyer_branch=Company_branch,
+                )
             invoice_data["CompanyBranch"] = company_branch_to_display(Company_branch)
 
 
