@@ -1944,6 +1944,16 @@ def extract_tax_remark(invoices, ocr_cache=None):
 
                 remark = match.group(0)
                 return remark
+
+    if re.search(
+        r"\bPLEASE\s+DO\s+NOT\s+DEDUCT\s+WITH\s*HOLDING\s+TAX\b",
+        full_text,
+        re.IGNORECASE,
+    ):
+        return "PLEASE DO NOT DEDUCT WITHHOLDING TAX"
+
+    if re.search(r"\bNO[.\s]+WHT\b", full_text, re.IGNORECASE):
+        return "NO WHT"
     
     
     # Business rule: BOI code in invoice line items

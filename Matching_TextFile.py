@@ -5,6 +5,7 @@ import shutil
 from invoice_email import send_invoice_email
 
 import re
+import unicodedata
 
 from decimal import Decimal, InvalidOperation
 
@@ -282,7 +283,10 @@ def company_name_matches(name, master_en, master_th):
     if not clean(name):
         return False
     th = language_part(name, "th")
-    en = language_part(name, "en")
+    # Keep the base letter when OCR adds a mark, such as Ạ in THẠI.
+    english_name = unicodedata.normalize("NFD", clean(name))
+    english_name = re.sub(r"([A-Za-z])[\u0300-\u036f]+", r"\1", english_name)
+    en = language_part(english_name, "en")
     if th and supplier_names_match(th, master_th):
         return True
     # For English 'Name', accept THAI KOITO regardless of differing legal suffixes.
