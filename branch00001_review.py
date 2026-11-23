@@ -35,11 +35,24 @@ def select_address(raw, vendor_branch, lines, *, supplier_name='', **kwargs):
     safe = []
     buyer_key = re.sub(r'\W', '', kwargs.get('buyer_name','')).casefold()
     for text in header:
+        # Certification numbers are not postal codes; English month dates
+        # are not house numbers. Keep them out before address grouping.
+        if re.match(r'^(?:IATF|ISO)\s*[-:]?\s*\d|^CERTIFIED\b', text, re.I):
+            continue
+        if re.fullmatch(r'\d{1,2}[- /](?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*[- /]\d{2,4}',text,re.I):
+            continue
+        text_key = re.sub(r'\W','',text).casefold()
+        complete_company = bool(re.search(
+            r'บริษัท.+จำกัด|\b(?:CO\.?\s*,?\s*LTD\.?|COMPANY\s+LIMITED)\s*$', text,re.I))
+        split_buyer_name = (len(text_key) >= 8 and complete_company
+                            and buyer_key.endswith(text_key))
         digits = re.sub(r'\D','',text)
-        if (_ADDRESS_BUYER.search(text)
+        if (split_buyer_name or _ADDRESS_BUYER.search(text)
                 or any(str(t) and str(t) in digits for t in kwargs.get('buyer_tax_ids',()))
                 or (len(buyer_key) >= 8 and buyer_key in re.sub(r'\W','',text).casefold())):
             break
+        text = re.sub(r'^[·•●]+\s*(?=\d)', '', text)
+        text = re.sub(r'(?i)\bNO\.\s*(?=\d+(?:/\d+)?\s+(?:MOO\b|หมู่))', '', text)
         safe.append(text)
     options = dict(kwargs, prachinburi=True)
     result = select_vendor_address('', vendor_branch, safe, **options)
