@@ -1946,7 +1946,11 @@ def extract_tax_remark(invoices, ocr_cache=None):
                 return remark
 
     if re.search(
-        r"\bPLEASE\s+DO\s+NOT\s+DEDUCT\s+WITH\s*HOLDING\s+TAX\b",
+        r"\bPLEASE\s+DO\s+NOT\s+DEDUCT"
+        r"(?:[ \t]+[J/][ \t]*\r?\n|\s+)"
+        # OCR can interleave the adjacent seller tax ID between the two lines.
+        r"(?:[ \t]*เลขประจำตัวผู้เสียภาษีอากร[ \t]*[:：]?[ \t]*[0-9]{13}[ \t]*\r?\n)?"
+        r"\s*WITH\s*HOLDING\s+TAX\b",
         full_text,
         re.IGNORECASE,
     ):
