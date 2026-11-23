@@ -138,3 +138,24 @@ def marked_branch(pdf_path, pages, options):
         return next(iter(winners)) if len(winners) == 1 else ''
     except (ImportError, OSError, ValueError, IndexError, RuntimeError):
         return ''
+
+
+def restore_vpi_invoice_number(current, buyer_branch, vendor_tax_id, text):
+    """Restore only a truncated VPI number from one unambiguous OCR token.
+
+    This does not change the shared invoice patterns or substitute digits.
+    VendorBranch is deliberately not used to choose the buyer's rules.
+    """
+    if (buyer_branch != '00001'
+            or re.sub(r'\D', '', str(vendor_tax_id or '')) != '0105535169381'):
+        return current
+    candidates = {re.sub(r'\s+', '', match.group(1)).upper()
+                  for match in re.finditer(
+                      r'(?<![A-Z0-9/])([0-9]V[0-9]{6}\s*/\s*[0-9]{3})(?![A-Z0-9/])',
+                      str(text or ''), re.I)}
+    if len(candidates) != 1:
+        return current
+    full = next(iter(candidates))
+    old = str(current or '').strip().upper()
+    partials = {'', full, full.split('/')[0], full[1:], full[1:].split('/')[0]}
+    return full if old in partials else current
