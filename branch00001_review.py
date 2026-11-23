@@ -159,3 +159,39 @@ def restore_vpi_invoice_number(current, buyer_branch, vendor_tax_id, text):
     old = str(current or '').strip().upper()
     partials = {'', full, full.split('/')[0], full[1:], full[1:].split('/')[0]}
     return full if old in partials else current
+
+
+def clean_prospack_invoice_number(current, buyer_branch, vendor_tax_id, lines):
+    """Remove a misread caption/check stroke only from a proven PROSPACK ID.
+
+    Require the same eight digits next to the invoice-number caption in the
+    seller header. Do not strip arbitrary valid prefixes or slash suffixes.
+    """
+    if (buyer_branch != '00001'
+            or re.sub(r'\D', '', str(vendor_tax_id or '')) != '0145534000022'):
+        return current
+    match = re.fullmatch(
+        r'\s*(?:LAIM|เลขที่|SR\.?\s*NO\.?)\s*[:：]?\s*([0-9]{8})\s*/?\s*',
+        str(current or ''), re.I,
+    )
+    if not match:
+        return current
+    header = []
+    for line in seller_lines(lines):
+        if _ADDRESS_BUYER.search(line):
+            break
+        header.append(line)
+    caption = re.compile(r'เลขที่|\bSR\.?\s*NO\.?\b', re.I)
+    candidates = set()
+    for i, text in enumerate(header):
+        if not any(caption.search(t) for t in header[max(0,i-1):i+2]):
+            continue
+        # A full value line avoids mistaking a date, PO, TaxID or item code
+        # for an invoice number even when it happens to have eight digits.
+        value = re.fullmatch(
+            r'\s*(?:(?:LAIM|เลขที่|SR\.?\s*NO\.?)\s*[:：]?\s*)?'
+            r'([0-9]{8})\s*/?\s*',text,re.I,
+        )
+        if value:
+            candidates.add(value.group(1))
+    return match.group(1) if candidates == {match.group(1)} else current

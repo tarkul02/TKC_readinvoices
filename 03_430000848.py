@@ -22,7 +22,7 @@ from vendor_address import select_vendor_address
 from supplier_name import remove_supplier_logo_fragments
 from invoice_amounts import parse_amount, resolve_amounts, merge_amounts
 from branch00001_amounts import reconcile_branch_amounts
-from branch00001_review import is_copy_caption, select_address, marked_branch, restore_vpi_invoice_number
+from branch00001_review import is_copy_caption, select_address, marked_branch, restore_vpi_invoice_number, clean_prospack_invoice_number
 
 # ====================================================
 # 🔐 ตั้งค่า
@@ -3996,6 +3996,18 @@ for input_pdf in pdf_list:
             if invoice_data['TaxInvoiceNo'] != previous_invoice_no:
                 vendor_branch_debug(
                     'VPI_INVOICE_NUMBER_RESTORED', pdf_path=str(pdf_path),
+                    before=previous_invoice_no, after=invoice_data['TaxInvoiceNo'],
+                    buyer_branch=Company_branch,
+                )
+
+            previous_invoice_no = invoice_data.get('TaxInvoiceNo', '')
+            invoice_data['TaxInvoiceNo'] = clean_prospack_invoice_number(
+                previous_invoice_no, Company_branch, invoice_data.get('VendorTaxId', ''),
+                ocr_cache['lines'],
+            )
+            if invoice_data['TaxInvoiceNo'] != previous_invoice_no:
+                vendor_branch_debug(
+                    'PROSPACK_INVOICE_NUMBER_CLEANED', pdf_path=str(pdf_path),
                     before=previous_invoice_no, after=invoice_data['TaxInvoiceNo'],
                     buyer_branch=Company_branch,
                 )
