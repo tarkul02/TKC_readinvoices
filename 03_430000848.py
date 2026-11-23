@@ -18,7 +18,7 @@ from azure.core.exceptions import ServiceRequestError, HttpResponseError
 from datetime import datetime, timedelta
 from dateutil import parser
 from po_patterns import load_po_patterns, is_po_value
-from vendor_address import select_vendor_address
+from vendor_address import select_vendor_address, select_vendor_address_with_conflicts
 from supplier_name import remove_supplier_logo_fragments
 from invoice_amounts import parse_amount, resolve_amounts, merge_amounts
 from branch00001_amounts import reconcile_branch_amounts
@@ -3913,7 +3913,7 @@ for input_pdf in pdf_list:
             )
 
             # Select the seller address only after its issuing branch is known.
-            address_selector = select_address if Company_branch == '00001' else select_vendor_address
+            address_selector = select_address if Company_branch == '00001' else select_vendor_address_with_conflicts
             address_options = ({'supplier_name': invoice_data.get('SupplierName', '')}
                                if Company_branch == '00001' else {})
             selected_address, address_status = address_selector(
@@ -3926,6 +3926,10 @@ for input_pdf in pdf_list:
             )
             raw_address_present = bool(invoice_data.get("VendorAddress", ""))
             invoice_data["VendorAddress"] = selected_address
+            if address_status == 'conflicting':
+                invoice_data['Emessage'] = append_msg(
+                    invoice_data.get('Emessage', ''), 'ที่อยู่ไม่เหมือนกัน',
+                )
             if address_status == "unresolved":
                 invoice_data["Emessage"] = append_msg(
                     invoice_data.get("Emessage", ""),

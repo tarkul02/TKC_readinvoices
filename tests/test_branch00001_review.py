@@ -95,9 +95,10 @@ class HeaderRegressions(unittest.TestCase):
     def test_missing_branch_is_not_assumed_from_buyer(self):
         self.assertEqual(select_address('', '', OCR['8']), ('','unresolved'))
 
-    def test_two_addresses_in_same_selected_branch_remain_unresolved(self):
+    def test_two_addresses_in_same_selected_branch_are_retained_with_conflict(self):
         lines=['สาขา 00001','1 MOO 1 THAILAND 25110','2 MOO 2 THAILAND 25110','รหัสลูกค้า']
-        self.assertEqual(select_address('', '00001', lines), ('','unresolved'))
+        self.assertEqual(select_address('', '00001', lines),
+                         ('1 MOO 1 THAILAND 25110 2 MOO 2 THAILAND 25110','conflicting'))
 
     def test_recorded_matex_head_office_and_00000_unchanged(self):
         extract=branch_function()

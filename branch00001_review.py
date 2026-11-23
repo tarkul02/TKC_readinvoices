@@ -43,6 +43,8 @@ def select_address(raw, vendor_branch, lines, *, supplier_name='', **kwargs):
         safe.append(text)
     options = dict(kwargs, prachinburi=True)
     result = select_vendor_address('', vendor_branch, safe, **options)
+    if result[1] == 'conflicting':
+        return result
     if result[1] == 'selected' and len(_postcodes(result[0])) == 1:
         return result
     if not vendor_branch:

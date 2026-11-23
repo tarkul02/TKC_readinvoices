@@ -46,7 +46,7 @@ def _starts_address(value):
                 and not _META.search(value))
 
 
-def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=(), buyer_name='', prachinburi=False):
+def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=(), buyer_name='', prachinburi=False, retain_conflicts=False):
     """Return (address, selected/unchanged/unresolved).
 
     Read the seller header up to the first buyer marker. Labels may precede or
@@ -196,6 +196,11 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
         if address not in values:
             values.append(address)
     matches = [' '.join(values) for (code, _, _), values in groups.items() if code == branch and branch]
+    if ((prachinburi or retain_conflicts) and len(matches) > 1
+            and all(len(_postcodes(address)) == 1 for address in matches)):
+        # Keep all complete seller addresses for the confirmed issuing branch
+        # as OCR read them; the caller must surface the disagreement.
+        return ' '.join(matches), 'conflicting'
     if len(matches) == 1:
         unchanged = raw and matches[0] == _clean(raw) and not any(c['branch'] for c in chunks)
         return matches[0], 'unchanged' if unchanged else 'selected'
@@ -207,3 +212,22 @@ def select_vendor_address(raw_address, vendor_branch, lines, *, buyer_tax_ids=()
     if raw:
         return _clean(raw), 'unchanged'
     return '', 'unresolved'
+
+
+def select_vendor_address_with_conflicts(raw_address, vendor_branch, lines, **kwargs):
+    """Keep the existing buyer-00000 parsing, adding only conflict retention.
+
+    Inspect all seller-header candidates without the Azure hint first so one
+    raw house number cannot hide another conflicting address of that branch.
+    """
+    lines = list(lines)
+    header = []
+    for line in lines:
+        if re.search(r'รหัสลูกค้า|นามลูกค้า|^\s*CLIENT\s*[/：:]?\s*ADDRESS\b', str(line), re.I):
+            break
+        header.append(line)
+    evidence = select_vendor_address('', vendor_branch, header,
+                                     retain_conflicts=True, **kwargs)
+    if evidence[1] == 'conflicting':
+        return evidence
+    return select_vendor_address(raw_address, vendor_branch, lines, **kwargs)

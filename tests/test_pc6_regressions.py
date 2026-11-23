@@ -41,9 +41,14 @@ class FocusTests(unittest.TestCase):
 
 
 class AddressTests(unittest.TestCase):
-    def test_conflicting_houses_are_not_guessed(self):
+    def test_conflicting_houses_are_both_retained_without_correcting_digits(self):
         for p in ['19','23']:
-            self.assertEqual(select_address('','00000',OCR[p]),('','unresolved'))
+            address,status=select_address('','00000',OCR[p])
+            self.assertEqual(status,'conflicting')
+            self.assertIn('700/369',address)
+            self.assertIn('700/869',address)
+            self.assertNotIn('555',address)
+            self.assertEqual(select_vendor_address('','00000',OCR[p]),('','unresolved'))
 
     def test_footer_address_and_no_buyer_leak(self):
         name='บริษัท บางกอกพัฒนามอเตอร์ จำกัด Bangkok Metropolis Motor Co., Ltd'
