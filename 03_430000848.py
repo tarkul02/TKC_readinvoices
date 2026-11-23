@@ -4,6 +4,7 @@ import io
 import re
 import json
 import time
+import unicodedata
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
@@ -2351,6 +2352,11 @@ def clean_company_name(name):
     # ==========================================================
     # ภาษาอังกฤษ
     # ==========================================================
+    # Remove OCR accents attached to Latin letters without stripping Thai marks.
+    name = unicodedata.normalize("NFD", name)
+    name = re.sub(r"([A-Za-z])[\u0300-\u036f]+", r"\1", name)
+    name = unicodedata.normalize("NFC", name)
+
     english_endings = [
         # PUBLIC COMPANY LIMITED
         r"\bPUBLIC\s+COMPANY\s+LIMITED\b",
@@ -3900,9 +3906,8 @@ for input_pdf in pdf_list:
                 )
 
             if not invoice_data.get("CompanyName"):
-                invoice_data["CompanyName"] = extract_company_name_from_pages(
-                    invoices,
-                    ocr_cache,
+                invoice_data["CompanyName"] = clean_company_name(
+                    extract_company_name_from_pages(invoices, ocr_cache)
                 )
 
             if not invoice_data.get("CompanyTaxID"):
