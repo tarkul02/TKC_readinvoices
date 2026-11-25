@@ -292,27 +292,19 @@ def company_name_matches(name, master_en, master_th):
     english_name = unicodedata.normalize("NFD", clean(name))
     english_name = re.sub(r"([A-Za-z])[\u0300-\u036f]+", r"\1", english_name)
     en = language_part(english_name, "en")
-    if '^' in clean(master_en) or '^' in clean(master_th):
-        # Explicit Master lists own the accepted names. Do not concatenate
-        # alternatives or apply the legacy THAI KOITO substring/alias rules.
-        return bool(
-            (th and any(supplier_names_match(th, variant)
-                        for variant in split_master_name_variants(master_th)))
-            or (en and any(supplier_names_match(en, variant)
-                           for variant in split_master_name_variants(master_en)))
-        )
-    thai_koito_variants = {
-        language_part("บริษัท ไทย โคะอิโท จำกัด", "th"),
-        language_part("บจก. ไทย โคะอิโท", "th"),
-    }
-    if th in thai_koito_variants and language_part(master_th, "th") in thai_koito_variants:
+    # Preserve the original English rule for a single-name Master. Explicit
+    # ^ lists still use their listed alternatives, as before this change.
+    if ('^' not in clean(master_en) and '^' not in clean(master_th)
+            and en and 'thai koito' in en
+            and 'thai koito' in language_part(master_en, 'en')):
         return True
-    if th and supplier_names_match(th, master_th):
-        return True
-    # For English 'Name', accept THAI KOITO regardless of differing legal suffixes.
-    if en and "thai koito" in en and "thai koito" in language_part(master_en, "en"):
-        return True
-    return bool(en and supplier_names_match(en, master_en))
+    # Thai names, with or without ^, are accepted only from Master.
+    return bool(
+        (th and any(supplier_names_match(th, variant)
+                    for variant in split_master_name_variants(master_th)))
+        or (en and any(supplier_names_match(en, variant)
+                       for variant in split_master_name_variants(master_en)))
+    )
 
 REQUIRED_FIELDS = [
 

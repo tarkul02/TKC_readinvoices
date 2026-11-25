@@ -32,9 +32,16 @@ class MasterNameCaret(unittest.TestCase):
     def test_explicit_list_uses_master_not_hardcoded_thai_alias(self):
         self.assertFalse(company_name_matches('บจก. ไทย โคะอิโท','OTHER^ANOTHER', 'บริษัท ไทย โคะอิโท จำกัด'))
 
-    def test_single_value_master_keeps_previous_behavior(self):
+    def test_single_master_keeps_english_rule_but_not_thai_aliases(self):
         self.assertTrue(company_name_matches('THAI KOITO CO., LTD.','THAI KOITO COMPANY LIMITED',''))
-        self.assertTrue(company_name_matches('บจก. ไทย โคะอิโท','','บริษัท ไทย โคะอิโท จำกัด'))
+        self.assertFalse(company_name_matches('บจก. ไทย โคะอิโท','','บริษัท ไทย โคะอิโท จำกัด'))
+
+    def test_legacy_english_substring_rule_is_preserved(self):
+        for name in ['INGO THAI KOITO COMPANY LIMITED', 'THAI KOITO',
+                     'THAI KOITO TRADING COMPANY LIMITED']:
+            self.assertTrue(company_name_matches(name,'THAI KOITO COMPANY LIMITED',''))
+        self.assertFalse(company_name_matches('THAI KOITO CO., LTD.','',''))
+        self.assertTrue(company_name_matches('OTHER COMPANY LIMITED','OTHER COMPANY LIMITED',''))
 
     def test_master_file_retains_branch_address_and_matches_names(self):
         wb=Workbook();ws=wb.active;ws.append(['No','Vendor account','Prones','Tax ID','Company Name (Eng)','Company Name (TH)','Branch','Street','Postcode'])
