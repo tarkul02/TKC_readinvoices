@@ -279,6 +279,11 @@ def validate_empty_branches(record, master_records):
     return messages
 
 
+def split_master_name_variants(value):
+    """A caret separates complete Master names; commas stay inside CO., LTD."""
+    return tuple(dict.fromkeys(part.strip() for part in clean(value).split('^') if part.strip()))
+
+
 def company_name_matches(name, master_en, master_th):
     if not clean(name):
         return False
@@ -287,6 +292,15 @@ def company_name_matches(name, master_en, master_th):
     english_name = unicodedata.normalize("NFD", clean(name))
     english_name = re.sub(r"([A-Za-z])[\u0300-\u036f]+", r"\1", english_name)
     en = language_part(english_name, "en")
+    if '^' in clean(master_en) or '^' in clean(master_th):
+        # Explicit Master lists own the accepted names. Do not concatenate
+        # alternatives or apply the legacy THAI KOITO substring/alias rules.
+        return bool(
+            (th and any(supplier_names_match(th, variant)
+                        for variant in split_master_name_variants(master_th)))
+            or (en and any(supplier_names_match(en, variant)
+                           for variant in split_master_name_variants(master_en)))
+        )
     thai_koito_variants = {
         language_part("บริษัท ไทย โคะอิโท จำกัด", "th"),
         language_part("บจก. ไทย โคะอิโท", "th"),
