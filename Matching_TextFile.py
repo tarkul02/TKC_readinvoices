@@ -287,6 +287,12 @@ def company_name_matches(name, master_en, master_th):
     english_name = unicodedata.normalize("NFD", clean(name))
     english_name = re.sub(r"([A-Za-z])[\u0300-\u036f]+", r"\1", english_name)
     en = language_part(english_name, "en")
+    thai_koito_variants = {
+        language_part("บริษัท ไทย โคะอิโท จำกัด", "th"),
+        language_part("บจก. ไทย โคะอิโท", "th"),
+    }
+    if th in thai_koito_variants and language_part(master_th, "th") in thai_koito_variants:
+        return True
     if th and supplier_names_match(th, master_th):
         return True
     # For English 'Name', accept THAI KOITO regardless of differing legal suffixes.

@@ -15,6 +15,20 @@ class CompanyNameTests(unittest.TestCase):
         cls.ns = {'re': re}
         exec(compile(ast.Module(body=funcs, type_ignores=[]), str(path), 'exec'), cls.ns)
 
+    def test_english_buyer_prefix_is_removed(self):
+        clean=self.ns['clean_company_name']
+        for prefix in ['TO18P ', 'INGO ', 'TO: ', 'Customer No. 123 ']:
+            self.assertEqual(clean(prefix+'THAI KOITO CO. LTD.'),'THAI KOITO CO. LTD.')
+        self.assertEqual(clean('TO18P THAI KOITO COMPANY LIMITED'),'THAI KOITO COMPANY LIMITED')
+        self.assertEqual(clean('TO18P THAI KOITO CO., LTD. (HEAD OFFICE)'), 'THAI KOITO CO., LTD.')
+
+    def test_prefix_cleanup_does_not_rewrite_spelling_or_other_buyers(self):
+        clean=self.ns['clean_company_name']
+        for text in ['THAI KOITO CO., LTD.', 'OTHER COMPANY LIMITED',
+                     'TO18P THAI KOLTO CO. LTD.', 'XTHAI KOITO CO. LTD.',
+                     'บจก. ไทย โคะอิโท']:
+            self.assertEqual(clean(text),text)
+
     def test_user_abbreviated_thai_name(self):
         clean = self.ns['clean_company_name']
         self.assertEqual(clean('บจก. ไทย โคะอิโท/   สำนักงานใหญ่'), 'บจก. ไทย โคะอิโท')

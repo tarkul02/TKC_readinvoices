@@ -2514,6 +2514,12 @@ def clean_company_name(name):
     # ==========================================================
     # ภาษาอังกฤษ
     # ==========================================================
+    # Buyer names can carry a customer code/logo fragment before THAI KOITO.
+    # Strip that prefix only; retain the name spelling and legal suffix.
+    buyer_start = re.search(r"\bTHAI\s+KOITO\b", name, re.IGNORECASE)
+    if buyer_start:
+        name = name[buyer_start.start():]
+
     english_endings = [
         # PUBLIC COMPANY LIMITED
         r"\bPUBLIC\s+COMPANY\s+LIMITED\b",
